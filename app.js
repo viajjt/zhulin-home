@@ -3,7 +3,7 @@ const App = (function() {
   const PAGES = [
     { id: 'home',  label: '首页',   ic: '🏠', page: HomePage },
     { id: 'trip',  label: '旅行',   ic: '✈️', page: TripPage },
-    { id: 'calendar', label: '日历', ic: '📅', page: CalendarPage },
+    { id: 'calendar', label: '日程', ic: '📅', page: CalendarPage },
     { id: 'stock', label: '库存',   ic: '📦', page: StockPage },
     { id: 'meal',  label: '点餐',   ic: '🍽️', page: MealPage },
     { id: 'finance', label: '财务', ic: '💰', page: FinancePage },
@@ -231,6 +231,10 @@ const App = (function() {
     render();
     // 启动自动云同步：打开即同步 + 每 30 秒轮询 + 切回页面立即同步
     if (typeof DB !== 'undefined' && DB.startAutoSync) DB.startAutoSync();
+    // 清理已软删除超过7天的记录（防止数据膨胀）
+    if (typeof DB !== 'undefined' && DB.purgeDeleted && DB.SYNC_TABLES) {
+      DB.SYNC_TABLES.forEach(function(t) { DB.purgeDeleted(t).catch(function() {}); });
+    }
     // 动态加载家庭名称（云端同步，全家一致）
     if (typeof DB !== 'undefined' && DB.getFamilyName) {
       DB.getFamilyName().then(function(nm) {
