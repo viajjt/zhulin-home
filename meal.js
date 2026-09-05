@@ -148,10 +148,13 @@ const MealPage = (function() {
     if (dishes.length) {
       html += '<div class="grid2">';
       dishes.forEach(function(d) {
+        const imgHtml = d.img
+          ? '<img src="' + d.img + '" style="width:56px;height:56px;border-radius:12px;object-fit:cover;">'
+          : '<div style="width:56px;height:56px;border-radius:12px;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;font-size:26px;">🍽️</div>';
         html += '<div class="card" style="flex:1 1 200px;">' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
-            '<div style="width:40px;height:40px;border-radius:10px;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;font-size:20px;">🍽️</div>' +
-            '<div class="txt"><div class="t1">' + UI.esc(d.name) + '</div><div class="t2">' + (d.catn||'') + ' · ' + d.time + 'min' + (d.ai ? ' · ✨AI图' : ' · 📷实拍') + '</div></div>' +
+            imgHtml +
+            '<div class="txt" style="flex:1;min-width:0;"><div class="t1">' + UI.esc(d.name) + '</div><div class="t2">' + (d.catn||'') + ' · ' + d.time + 'min</div></div>' +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
             '<button class="btn sm" data-pick="' + d.id + '">选这道菜</button>' +
@@ -187,38 +190,78 @@ const MealPage = (function() {
       }).join('');
       return DB.getAll('members').then(function(ms) {
         const cookOpts = ms.map(function(m) { return '<option value="' + m.id + '">' + UI.esc(m.name) + '</option>'; }).join('');
+        // 菜品图文卡片（多选）
+        const dishCards = dishes.map(function(d) {
+          const imgHtml = d.img
+            ? '<img src="' + d.img + '" style="width:100%;height:70px;object-fit:cover;border-radius:8px 8px 0 0;">'
+            : '<div style="width:100%;height:70px;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;font-size:28px;border-radius:8px 8px 0 0;">🍽️</div>';
+          return '<div class="dish-pick" data-dish-id="' + d.id + '" style="flex:1 1 100px;min-width:0;border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;user-select:none;">' +
+            imgHtml +
+            '<div style="padding:6px 8px;text-align:center;">' +
+              '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + UI.esc(d.name) + '</div>' +
+              '<div style="font-size:10px;color:var(--sub);">' + d.time + 'min</div>' +
+            '</div></div>';
+        }).join('');
         UI.openModal(
-          '<h3>点餐</h3>' +
+          '<h3>点餐（可多选）</h3>' +
           '<div class="field"><label>日期</label><input id="p-date" type="date" value="' + UI.todayStr() + '"></div>' +
           '<div class="two">' +
             '<div class="field"><label>餐次</label><select id="p-type">' +
               '<option value="breakfast">早餐</option><option value="lunch">午餐</option><option value="dinner" selected>晚餐</option>' +
             '</select></div>' +
-            '<div class="field"><label>菜品</label><select id="p-dish">' + dishOpts + '</select></div>' +
-          '</div>' +
-          '<div class="two">' +
             '<div class="field"><label>开饭时间</label><input id="p-time" type="time" value="18:30"></div>' +
-            '<div class="field"><label>做饭人</label><select id="p-cook">' + (cookOpts || '<option value="">未排</option>') + '</select></div>' +
+          '</div>' +
+          '<div class="field"><label>做饭人</label><select id="p-cook">' + (cookOpts || '<option value="">未排</option>') + '</select></div>' +
+          '<div class="field"><label>选菜（点击选中/取消，可多选）</label>' +
+            '<div id="p-dishes" style="display:flex;gap:8px;flex-wrap:wrap;max-height:240px;overflow-y:auto;padding:4px;">' + dishCards + '</div>' +
+            '<div id="p-selected" style="font-size:12px;color:var(--sub);margin-top:6px;">已选 0 道菜</div>' +
           '</div>' +
           '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save="1">加入餐单</button></div>'
         );
         const modal = document.querySelector('.modal');
+        // 菜品多选点击
+        modal.querySelectorAll('.dish-pick').forEach(function(card) {
+          card.addEventListener('click', function() {
+            this.classList.toggle('selected');
+            this.style.borderColor = this.classList.contains('selected') ? 'var(--green-2)' : 'var(--border)';
+            this.style.background = this.classList.contains('selected') ? 'rgba(63,169,140,0.08)' : '';
+            const n = modal.querySelectorAll('.dish-pick.selected').length;
+            document.getElementById('p-selected').textContent = '已选 ' + n + ' 道菜';
+          });
+        });
         modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
         modal.querySelector('[data-save]').addEventListener('click', async function() {
           const date = document.getElementById('p-date').value;
           const meal_type = document.getElementById('p-type').value;
-          const dishId = +document.getElementById('p-dish').value;
-          const dish = dishes.find(function(d) { return d.id === dishId; });
           const time = document.getElementById('p-time').value;
           const cook = document.getElementById('p-cook').value || null;
-          if (!date || !dish) { UI.toast('请选择日期和菜品'); return; }
+          const selectedIds = Array.from(modal.querySelectorAll('.dish-pick.selected')).map(function(c) { return +c.getAttribute('data-dish-id'); });
+          if (!date || !selectedIds.length) { UI.toast('请选择日期和至少一道菜'); return; }
+          const selectedDishes = dishes.filter(function(d) { return selectedIds.indexOf(d.id) >= 0; });
+          const dishNames = selectedDishes.map(function(d) { return d.name; }).join('、');
+          // 加入餐单
           await DB.add('meal_plans', {
             date: date, meal_type: meal_type,
-            dishes: dish.name, dishIds: [dishId],
+            dishes: dishNames, dishIds: selectedIds,
             time: time, cook: cook
           });
+          // 自动生成做饭人采购任务（截止 = 开饭前 4 小时）
+          if (time) {
+            const dueTime = subMinutes(time, 240); // 4小时 = 240分钟
+            const cookName = cook ? (ms.find(function(m){return m.id==cook;})||{}).name || '' : '';
+            await DB.add('tasks', {
+              title: '🛒 采购：' + dishNames,
+              desc: '为 ' + date + ' ' + (mealTypeName[meal_type]||'') + ' 采购食材（开饭 ' + time + '）',
+              date: date,
+              time: dueTime,
+              assignee: cook,
+              assigneeName: cookName,
+              done: false,
+              source: 'meal'
+            });
+          }
           UI.closeModal();
-          UI.toast('已加入餐单，采购清单已更新');
+          UI.toast('已加入餐单，采购任务已生成（开饭前4小时）');
           App.render();
         });
       });
@@ -240,10 +283,10 @@ const MealPage = (function() {
       '</div>' +
       '<div class="field"><label>食材（每行一项，格式：名称 用量）</label><textarea id="d-ing" rows="4" placeholder="排骨 500g&#10;姜 3片">' + UI.esc(dish && dish.ing ? dish.ing.map(function(p){return p.join(' ');}).join('\n') : '') + '</textarea></div>' +
       '<div class="field"><label>调料（每行一项，格式：名称 用量）</label><textarea id="d-sea" rows="3" placeholder="生抽 2勺">' + UI.esc(dish && dish.sea ? dish.sea.map(function(p){return p.join(' ');}).join('\n') : '') + '</textarea></div>' +
-      '<div class="field"><label>菜品图</label><select id="d-ai">' +
-        '<option value="1"' + (!dish || dish.ai ? ' selected' : '') + '>✨ AI 图占位（预留）</option>' +
-        '<option value="0"' + (dish && !dish.ai ? ' selected' : '') + '>📷 实拍上传（预留）</option>' +
-      '</select></div>' +
+      '<div class="field"><label>菜品图（本地上传，可选）</label>' +
+        '<input type="file" id="d-img" accept="image/*" style="margin-bottom:6px;">' +
+        '<div id="d-img-preview" style="max-width:120px;max-height:120px;border-radius:10px;overflow:hidden;background:#f5f0eb;display:flex;align-items:center;justify-content:center;font-size:32px;">' + (dish && dish.img ? '<img src="' + dish.img + '" style="width:100%;height:100%;object-fit:cover;">' : '🍽️') + '</div>' +
+      '</div>' +
       '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save="1">保存</button></div>'
     );
     const modal = document.querySelector('.modal');
@@ -262,14 +305,43 @@ const MealPage = (function() {
         const i = l.indexOf(' ');
         return i > 0 ? [l.slice(0,i).trim(), l.slice(i+1).trim()] : [l, '适量'];
       });
-      const ai = document.getElementById('d-ai').value === '1';
+      const ai = document.getElementById('d-ai') ? document.getElementById('d-ai').value === '1' : false;
       const obj = { name: name, cat: cat, catn: cn[cat], time: time, ai: ai, ing: ing, sea: sea };
-      if (dish) obj.id = dish.id;
-      await DB.put('dishes', obj);
-      UI.closeModal();
-      UI.toast('已保存菜谱');
-      App.render();
+      // 读取上传的菜品图（base64）
+      const imgInput = document.getElementById('d-img');
+      if (imgInput && imgInput.files && imgInput.files[0]) {
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+          obj.img = e.target.result;
+          if (dish) obj.id = dish.id;
+          await DB.put('dishes', obj);
+          UI.closeModal();
+          UI.toast('已保存菜谱');
+          App.render();
+        };
+        reader.readAsDataURL(imgInput.files[0]);
+      } else {
+        if (dish && dish.img) obj.img = dish.img;
+        if (dish) obj.id = dish.id;
+        await DB.put('dishes', obj);
+        UI.closeModal();
+        UI.toast('已保存菜谱');
+        App.render();
+      }
     });
+    // 图片预览
+    const imgInput2 = document.getElementById('d-img');
+    if (imgInput2) {
+      imgInput2.addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            document.getElementById('d-img-preview').innerHTML = '<img src="' + e.target.result + '" style="width:100%;height:100%;object-fit:cover;">';
+          };
+          reader.readAsDataURL(this.files[0]);
+        }
+      });
+    }
   }
 
   function showTemplates() {

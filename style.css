@@ -228,3 +228,10 @@ input,select,textarea{font-family:inherit; font-size:14px;}
   .two{flex-direction:column;}
   .toast{bottom:84px;}
 }
+
+/* 财务功能：未开启时隐藏导航入口 */
+[data-nav="finance"]{display:none;}
+body.finance-on [data-nav="finance"]{display:flex;}
+@media(max-width:768px){
+  body.finance-on .mobile-nav [data-nav="finance"]{display:flex;}
+}

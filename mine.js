@@ -74,8 +74,16 @@ const MinePage = (function() {
     const me = await DB.getSetting('me');
     const syncStatus = await DB.getSyncStatus();
     const city = (await DB.getSetting('city')) || Weather.DEFAULT_CITY;
+    const familyName = await DB.getFamilyName();
 
     let html = '';
+
+    // 家庭信息（名称可改，云端同步全家一致）
+    html += '<div class="section-title">🏡 家庭信息</div>';
+    html += '<div class="card"><div class="kv">' +
+      '<span class="k">家庭名称</span>' +
+      '<span class="v"><span style="font-weight:600;">' + UI.esc(familyName) + '</span> ' +
+      '<button class="btn sm ghost" data-edit-family="1">改名</button></span></div></div>';
 
     // 家庭成员
     html += '<div class="section-title">👨‍👩‍👧‍👦 家庭成员（人人平等）</div>';
@@ -127,12 +135,27 @@ const MinePage = (function() {
     });
     html += '</div>';
 
+    // 财务功能（密码锁）
+    const finEnabled = await DB.getSetting('finance_enabled');
+    const finPwd = await DB.getSetting('finance_pwd');
+    html += '<div class="section-title">💰 财务功能</div>';
+    html += '<div class="card">' +
+      '<div class="kv"><span class="k">启用财务功能</span><span class="v">' +
+      '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">' +
+      '<input type="checkbox" id="fin-enable" ' + (finEnabled ? 'checked' : '') + ' style="width:18px;height:18px;"> 开启</label></span></div>' +
+      (finEnabled ? '<div class="kv"><span class="k">访问密码</span><span class="v">' +
+        (finPwd ? '<span class="pill grn">已设置</span> ' : '<span class="pill" style="background:#f0d0d0;color:#a33;">未设置</span> ') +
+        '<button class="btn sm ghost" data-fin-pwd="1">' + (finPwd ? '修改' : '设置') + '</button></span></div>' +
+        '<div class="kv"><span class="k">进入财务页</span><span class="v"><a href="#/finance" class="btn sm">打开 💰</a></span></div>' : '') +
+      '<div style="font-size:11px;color:var(--sub);margin-top:6px;">开启后导航显示财务入口，访问需输密码。财务数据云端同步。</div>' +
+    '</div>';
+
     // 数据与同步
     html += '<div class="section-title">💾 数据与同步</div>';
     html += '<div class="card">' +
       '<div class="kv"><span class="k">多设备同步</span><span class="v"><span class="pill ' + (syncStatus.configured ? 'grn' : 'gray') + '">' + (syncStatus.configured ? '已连接 Supabase' : '本地模式') + '</span></span></div>' +
       (syncStatus.configured ? '<div class="kv"><span class="k">上次同步</span><span class="v" style="font-size:12px;">' + fmtSyncTime(syncStatus.last) + '</span></div>' : '') +
-      '<div class="kv"><span class="k">导出数据（JSON）</span><button class="btn sm ghost" data-export="1">导出</button></div>' +
+      '<div class="kv"><span class="k">导出数据（JSON）</span><span class="v"><button class="btn sm ghost" data-export="1">导出</button> <button class="btn sm ghost" data-import="1">导入</button></span></div>' +
       (syncStatus.configured ? '<div class="kv"><span class="k">立即同步</span><button class="btn sm" data-dosync="1">同步</button></div>' : '') +
       '<div class="kv"><span class="k">同步设置</span><button class="btn sm ghost" data-sync="1">配置</button></div>' +
     '</div>';
@@ -184,7 +207,7 @@ const MinePage = (function() {
   }
 
   async function exportData() {
-    const stores = ['members','tasks','inventory_items','trips','packing_items','anniversaries','milestones','meal_plans'];
+    const stores = ['families','members','tasks','inventory_items','trips','packing_items','anniversaries','milestones','dishes','meal_plans','meal_templates','shopping_items','budgets','transactions','messages'];
     const data = {};
     for (const s of stores) {
       data[s] = await DB.getAll(s);
@@ -199,6 +222,41 @@ const MinePage = (function() {
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
     UI.toast('已导出备份');
+  }
+
+  async function importData() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!confirm('导入将合并到当前数据（同 id 覆盖），确定继续？')) return;
+      const text = await file.text();
+      try {
+        const data = JSON.parse(text);
+        let count = 0;
+        for (const store of Object.keys(data)) {
+          if (store.startsWith('_')) continue;
+          if (!DB.STORES.indexOf(store) >= 0 && !DB.SYNC_TABLES.indexOf(store) >= 0) continue;
+          const list = data[store];
+          if (!Array.isArray(list)) continue;
+          for (const item of list) {
+            if (item.id) {
+              await DB.put(store, item);
+            } else {
+              await DB.add(store, item);
+            }
+            count++;
+          }
+        }
+        UI.toast('已导入 ' + count + ' 条数据');
+        App.render();
+      } catch (err) {
+        UI.toast('导入失败：文件格式错误');
+      }
+    };
+    input.click();
   }
 
   function openSyncForm() {
@@ -254,8 +312,29 @@ const MinePage = (function() {
     const sy = t.getAttribute('data-sync');
     const ds = t.getAttribute('data-dosync');
     const rl = t.getAttribute('data-roles');
+    const ef = t.getAttribute('data-edit-family');
     if (nm) openMemberForm(null);
     else if (em) openMemberForm(await DB.get('members', +em));
+    else if (ef) {
+      const cur = await DB.getFamilyName();
+      UI.openModal('<h3>修改家庭名称</h3>' +
+        '<p style="color:var(--sub);font-size:13px;margin-bottom:10px;">全家共享，修改后所有设备同步更新。</p>' +
+        '<input id="fam-name" class="input" value="' + UI.esc(cur) + '" placeholder="家庭名称" style="width:100%;margin-bottom:12px;">' +
+        '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-ok="1">保存</button></div>');
+      const modal = document.querySelector('.modal');
+      modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
+      modal.querySelector('[data-ok]').addEventListener('click', async function() {
+        const v = document.getElementById('fam-name').value.trim();
+        if (!v) { UI.toast('名称不能为空'); return; }
+        await DB.setFamilyName(v);
+        const el = document.querySelector('.brand .nm');
+        if (el) el.textContent = v;
+        document.title = v;
+        UI.closeModal();
+        UI.toast('家庭名称已更新');
+        App.render();
+      });
+    }
     else if (dm) {
       const id = +dm;
       UI.openModal('<h3>删除成员</h3><p style="color:var(--sub);font-size:14px;margin-bottom:8px;">确定删除这位成员吗？其历史记录仍保留。</p><div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-ok="1" style="background:var(--red);">删除</button></div>');
@@ -271,9 +350,29 @@ const MinePage = (function() {
       });
     }
     else if (ex) exportData();
+    else if (t.getAttribute('data-import')) importData();
     else if (sy) openSyncForm();
     else if (ds) doSync();
     else if (rl) openRoleManager();
+    else if (t.getAttribute('data-fin-pwd')) {
+      UI.openModal('<h3>设置财务密码</h3>' +
+        '<p style="color:var(--sub);font-size:13px;margin-bottom:10px;">访问财务页时需要输入。忘记密码可在此重置。</p>' +
+        '<input type="password" id="fin-new-pwd" class="input" placeholder="新密码" style="width:100%;margin-bottom:8px;">' +
+        '<input type="password" id="fin-new-pwd2" class="input" placeholder="确认密码" style="width:100%;margin-bottom:12px;">' +
+        '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-fin-pwd-ok="1">保存</button></div>');
+      const modal = document.querySelector('.modal');
+      modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
+      modal.querySelector('[data-fin-pwd-ok]').addEventListener('click', async function() {
+        const p1 = document.getElementById('fin-new-pwd').value;
+        const p2 = document.getElementById('fin-new-pwd2').value;
+        if (!p1 || p1.length < 4) { UI.toast('密码至少 4 位'); return; }
+        if (p1 !== p2) { UI.toast('两次密码不一致'); return; }
+        await DB.setSetting('finance_pwd', FinancePage.simpleHash(p1));
+        UI.closeModal();
+        UI.toast('密码已设置');
+        App.render();
+      });
+    }
   }
 
   function bind(root) {
@@ -283,6 +382,11 @@ const MinePage = (function() {
       if (t.id === 'm-city') {
         await DB.setSetting('city', t.value);
         UI.toast('天气城市已切换为 ' + t.value);
+      } else if (t.id === 'fin-enable') {
+        await DB.setSetting('finance_enabled', t.checked ? true : false);
+        document.body.classList.toggle('finance-on', t.checked);
+        UI.toast(t.checked ? '财务功能已开启' : '财务功能已关闭');
+        App.render();
       }
     });
   }
