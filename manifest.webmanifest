@@ -1,0 +1,26 @@
+{
+  "name": "朱林之家",
+  "short_name": "朱林之家",
+  "description": "全家共享的家庭管理应用：日程待办、物品库存、旅行规划、纪念日、家庭点餐",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F4F3EE",
+  "theme_color": "#2E8B74",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
