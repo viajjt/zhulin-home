@@ -1,8 +1,9 @@
-/* 朱林之家 - 页面：首页 / 今日概览（时尚可爱风 v2）
-   顶部：实时时钟 + 可爱日期星期 + 实时天气（Open-Meteo 免费）
-   下方：下次旅行 → 今日待办 → 今日菜单 → 临期物品（最底部） */
+/* 朱林之家 - 页面：首页 / 概览（卡通童趣风 v4）
+   顶部：实时时钟 + 可爱日期星期 + 实时天气
+   下方：下次旅行 → 一周待办(含超期) → 最近下一餐 → 家庭留言板 */
 const HomePage = (function() {
   let timer = null;
+  let selectedDay = 0; // 0=今天, 1=明天, ... 6=6天后
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function weekCn(d) { return ['日','一','二','三','四','五','六'][d.getDay()]; }
@@ -20,10 +21,32 @@ const HomePage = (function() {
     if (h < 18) return '下午好';
     return '晚上好';
   }
+  function dateStr(offset) {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().slice(0, 10);
+  }
+  function fmtCountdown(targetDate, targetTime) {
+    if (!targetDate) return '';
+    const now = new Date();
+    let target;
+    if (targetTime) {
+      target = new Date(targetDate + 'T' + targetTime + ':00');
+    } else {
+      target = new Date(targetDate + 'T12:00:00');
+    }
+    const diff = target - now;
+    if (diff <= 0) return '已到时间';
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    if (days > 0) return '还有 ' + days + ' 天 ' + hours + ' 小时';
+    if (hours > 0) return '还有 ' + hours + ' 小时 ' + mins + ' 分钟';
+    return '还有 ' + mins + ' 分钟';
+  }
 
   async function body() {
     const tasks = await DB.getAll('tasks');
-    const stocks = await DB.getAll('inventory_items');
     const trips = await DB.getAll('trips');
     const meals = await DB.getAll('meal_plans');
     const members = await DB.getAll('members');
@@ -33,23 +56,41 @@ const HomePage = (function() {
     const today = UI.todayStr();
     const now = new Date();
 
-    // 今日待办
-    const todayTasks = tasks.filter(function(t) { return !t.done && t.due === today; });
-    // 临期物品
-    const expireItems = stocks.filter(function(it) {
-      return it.expire && UI.daysUntil(it.expire) <= 3;
-    }).sort(function(a, b) { return a.expire.localeCompare(b.expire); });
+    // 超期未办（due < today 且未完成）
+    const overdueTasks = tasks.filter(function(t) {
+      return !t.done && t.due && t.due < today;
+    }).sort(function(a, b) { return a.due.localeCompare(b.due); });
+
+    // 一周待办（今天到未来6天）
+    const weekTasks = [];
+    for (let i = 0; i < 7; i++) {
+      const d = dateStr(i);
+      weekTasks.push({
+        date: d,
+        offset: i,
+        tasks: tasks.filter(function(t) { return !t.done && t.due === d; })
+      });
+    }
+
     // 下一次旅行
     const futureTrips = trips.filter(function(tp) {
       return tp.start && tp.start >= today;
     }).sort(function(a, b) { return a.start.localeCompare(b.start); });
     const nextTrip = futureTrips[0];
-    // 今日菜单
-    const todayMeals = meals.filter(function(m2) { return m2.date === today; });
+
+    // 最近下一餐（未来最近的点餐）
+    const futureMeals = meals.filter(function(m) {
+      return m.date && m.date >= today;
+    }).sort(function(a, b) {
+      const da = a.date + (a.time || '23:59');
+      const db = b.date + (b.time || '23:59');
+      return da.localeCompare(db);
+    });
+    const nextMeal = futureMeals[0];
 
     let html = '';
 
-    // ===== 顶部：时间 + 天气 大卡（可爱） =====
+    // ===== 顶部：时间 + 天气 大卡 =====
     html += '<div class="hw-hero">' +
       '<div class="hw-left">' +
         '<div class="hw-time"><span id="hw-clock">' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds()) + '</span></div>' +
@@ -64,71 +105,103 @@ const HomePage = (function() {
     // ===== 下次旅行 / 全家事务卡 =====
     if (nextTrip) {
       const d = UI.daysUntil(nextTrip.start);
+      const destName = nextTrip.destinations && nextTrip.destinations.length
+        ? nextTrip.destinations.map(function(x){return x.name;}).join('→')
+        : (nextTrip.dest || '旅行');
       html += '<div class="card hw-tripcard">' +
         '<div class="row">' +
           '<div class="hw-ic floaty">✈️</div>' +
           '<div class="txt">' +
-            '<div class="t1">下次旅行 · ' + UI.esc(nextTrip.dest) + '</div>' +
+            '<div class="t1">下次旅行 · ' + UI.esc(destName) + '</div>' +
             '<div class="t2">' + UI.fmtCn(nextTrip.start) + (nextTrip.end ? ' - ' + UI.fmtDate(nextTrip.end) : '') + ' · ' + (nextTrip.people || '') + ' 人</div>' +
           '</div>' +
           '<div class="hw-big"><span class="hw-num">' + d + '</span><span class="hw-lbl">天后出发</span></div>' +
         '</div>' +
       '</div>';
     } else {
-      const done = tasks.filter(function(t) { return t.done; }).length;
+      const pending = tasks.filter(function(t) { return !t.done; }).length;
       html += '<div class="card hw-tripcard">' +
         '<div class="row">' +
           '<div class="hw-ic floaty">🏠</div>' +
           '<div class="txt">' +
-            '<div class="t1">今天 · 全家共 ' + tasks.length + ' 件事</div>' +
-            '<div class="t2">已完成 ' + done + ' · 待办 ' + (tasks.length - done) + ' · 点击左侧菜单逛逛</div>' +
+            '<div class="t1">今天 · 全家共 ' + pending + ' 件待办</div>' +
+            '<div class="t2">超期 ' + overdueTasks.length + ' · 本周 ' + weekTasks.reduce(function(s,d){return s+d.tasks.length;},0) + ' · 点击左侧菜单逛逛</div>' +
           '</div>' +
         '</div>' +
       '</div>';
     }
 
-    // ===== 今日待办 =====
-    html += '<div class="section-title">📅 今日待办（' + todayTasks.length + '）</div>';
-    if (todayTasks.length) {
-      html += '<div class="card">';
-      todayTasks.forEach(function(t) {
-        const who = t.assignee && memberMap[t.assignee] ? memberMap[t.assignee] : null;
+    // ===== 超期未办（红色置顶） =====
+    if (overdueTasks.length) {
+      html += '<div class="overdue-section">' +
+        '<div class="title">⚠️ 超期未办（' + overdueTasks.length + '）</div>';
+      overdueTasks.forEach(function(t) {
+        const who = t.assignee && memberMap[t.assignee] ? memberMap[t.assignee].name : '';
+        html += '<div class="task-item">' +
+          '<div class="t-check" data-task-check="' + t.id + '"></div>' +
+          '<div class="t-body">' +
+            '<div class="t-title">' + UI.esc(t.title) + '</div>' +
+            '<div class="t-meta"><span>📅 ' + UI.fmtCn(t.due) + '</span>' + (who ? '<span>👤 ' + UI.esc(who) + '</span>' : '') + '</div>' +
+          '</div>' +
+          '<div class="t-actions"><button class="btn sm ghost" data-task-delay="' + t.id + '">延期到今天</button></div>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ===== 一周待办 =====
+    const totalWeek = weekTasks.reduce(function(s,d){return s+d.tasks.length;},0);
+    html += '<div class="section-title">📅 一周待办（' + totalWeek + '）</div>';
+    html += '<div class="card">';
+    // 日期选择条
+    html += '<div class="week-tabs">';
+    weekTasks.forEach(function(w, idx) {
+      const d = new Date(w.date);
+      const isToday = idx === 0;
+      const active = idx === selectedDay;
+      html += '<div class="week-tab' + (active ? ' active' : '') + '" data-week-day="' + idx + '">' +
+        '<div class="wd">' + (isToday ? '今天' : '周' + weekCn(d)) + '</div>' +
+        '<div class="dd">' + d.getDate() + '</div>' +
+        '<div class="cnt">' + (w.tasks.length ? w.tasks.length + '件' : '') + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    // 选中天的待办列表
+    const sel = weekTasks[selectedDay];
+    if (sel.tasks.length) {
+      sel.tasks.forEach(function(t) {
+        const who = t.assignee && memberMap[t.assignee] ? memberMap[t.assignee].name : '';
         const itemsHtml = (t.items && t.items.length)
-          ? '<div style="font-size:12px;color:var(--sub);margin-top:3px;line-height:1.5;">🛒 ' + UI.esc(t.items.join('、')) + '</div>'
+          ? '<div style="font-size:11.5px;color:var(--sub);margin-top:2px;">🛒 ' + UI.esc(t.items.join('、')) + '</div>'
           : '';
-        html += '<div class="kv" style="align-items:flex-start;"><span class="k" style="flex:1;">' + UI.esc(t.title) + itemsHtml + '</span>' +
-          '<span class="v">' + (who ? '<span style="color:var(--sub);font-size:12px;">' + UI.esc(who.name) + '</span>' : '') + '<span class="pill org">今天</span></span></div>';
+        html += '<div class="task-item">' +
+          '<div class="t-check' + (t.done ? ' checked' : '') + '" data-task-check="' + t.id + '">' + (t.done ? '✓' : '') + '</div>' +
+          '<div class="t-body">' +
+            '<div class="t-title">' + UI.esc(t.title) + '</div>' +
+            '<div class="t-meta">' + (t.time ? '<span>⏰ ' + t.time + '</span>' : '') + (who ? '<span>👤 ' + UI.esc(who) + '</span>' : '') + (t.source ? '<span class="pill ' + (t.source==='meal'?'org':t.source==='trip'?'blue':'gray') + '">' + (t.source==='meal'?'点餐':t.source==='trip'?'旅行':'系统') + '</span>' : '') + '</div>' +
+            itemsHtml +
+          '</div>' +
+        '</div>';
       });
-      html += '</div>';
     } else {
-      html += '<div class="card"><div class="empty"><span class="e">🎉</span>今天没有待办，好好休息</div></div>';
+      html += '<div class="empty" style="padding:20px 0;"><span class="e">🎉</span>' + (selectedDay === 0 ? '今天没有待办，好好休息' : '这一天没有待办安排') + '</div>';
     }
+    html += '</div>';
 
-    // ===== 今日菜单 =====
-    html += '<div class="section-title">🍽️ 今日菜单</div>';
-    if (todayMeals.length) {
-      html += '<div class="card">';
-      todayMeals.forEach(function(m2) {
-        const cook = m2.cook && memberMap[m2.cook] ? memberMap[m2.cook].name : '';
-        html += '<div class="kv"><span class="k">' + (m2.meal_type === 'breakfast' ? '🥣 早餐' : m2.meal_type === 'lunch' ? '🍱 午餐' : '🍲 晚餐') + ' · ' + UI.esc(m2.dishes || '') + '</span>' +
-          '<span class="v">' + (m2.time ? '<span style="color:var(--sub);font-size:12px;">' + m2.time + '</span>' : '') + (cook ? '<span class="pill pink">' + UI.esc(cook) + '做</span>' : '') + '</span></div>';
-      });
-      html += '</div>';
+    // ===== 最近下一餐 =====
+    html += '<div class="section-title">🍽️ 最近下一餐</div>';
+    if (nextMeal) {
+      const cook = nextMeal.cook && memberMap[nextMeal.cook] ? memberMap[nextMeal.cook].name : '';
+      const mealLabel = nextMeal.meal_type === 'breakfast' ? '🥣 早餐' : nextMeal.meal_type === 'lunch' ? '🍱 午餐' : nextMeal.meal_type === 'dinner' ? '🍲 晚餐' : '🍽️ 用餐';
+      const countdown = fmtCountdown(nextMeal.date, nextMeal.time);
+      html += '<div class="next-meal-card">' +
+        '<div class="nm-label">' + mealLabel + ' · ' + UI.fmtCn(nextMeal.date) + (nextMeal.time ? ' ' + nextMeal.time : '') + '</div>' +
+        '<div class="nm-dishes">' + UI.esc(nextMeal.dishes || '') + '</div>' +
+        '<div class="nm-meta">' + (cook ? '<span>👨‍🍳 ' + UI.esc(cook) + ' 做饭</span>' : '') + '</div>' +
+        (countdown ? '<div class="nm-countdown">⏳ ' + countdown + '</div>' : '') +
+      '</div>';
     } else {
-      html += '<div class="card"><div class="empty"><span class="e">🍚</span>今天还没点餐，去点餐页安排吧</div></div>';
-    }
-
-    // ===== 临期物品（放最底部） =====
-    html += '<div class="section-title">⏰ 临期物品（' + expireItems.length + '）</div>';
-    if (expireItems.length) {
-      html += '<div class="card">';
-      expireItems.forEach(function(it) {
-        const d = UI.daysUntil(it.expire);
-        html += '<div class="kv"><span class="k">' + UI.esc(it.name) + '</span><span class="pill ' + (d <= 0 ? 'red' : 'org') + '">' + (d < 0 ? '已过期' : d === 0 ? '今天到期' : d + ' 天后到期') + '</span></div>';
-      });
-      html += '</div>';
-    } else {
-      html += '<div class="card"><div class="empty"><span class="e">🥛</span>没有临期物品</div></div>';
+      html += '<div class="card"><div class="empty"><span class="e">🍚</span>暂无点餐安排，去点餐页安排一餐吧</div></div>';
     }
 
     // ===== 家庭留言板 =====
@@ -139,12 +212,12 @@ const HomePage = (function() {
       sortedMsgs.forEach(function(msg) {
         const sender = msg.memberName || (msg.member && memberMap[msg.member] ? memberMap[msg.member].name : '家人');
         const time = msg.created ? new Date(msg.created).toLocaleString('zh-CN', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
-        html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        html += '<div style="padding:8px 0;border-bottom:1.5px dashed var(--border);">' +
           '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">' +
-            '<span style="font-weight:600;font-size:13px;">' + UI.esc(sender) + '</span>' +
+            '<span style="font-weight:700;font-size:13px;">' + UI.esc(sender) + '</span>' +
             '<span style="font-size:11px;color:var(--sub);">' + time + ' <button class="btn sm ghost" data-del-msg="' + msg.id + '" style="padding:0 4px;font-size:11px;">删</button></span>' +
           '</div>' +
-          '<div style="font-size:13.5px;color:#333;line-height:1.5;">' + UI.esc(msg.text || '') + '</div>' +
+          '<div style="font-size:13.5px;color:var(--text);line-height:1.5;">' + UI.esc(msg.text || '') + '</div>' +
         '</div>';
       });
     } else {
@@ -162,7 +235,7 @@ const HomePage = (function() {
     return html;
   }
 
-  // 加载天气并渲染到顶部卡
+  // 加载天气
   async function loadWeather() {
     const el = document.getElementById('hw-weather');
     if (!el) return;
@@ -183,10 +256,30 @@ const HomePage = (function() {
   }
 
   function bind(root) {
-    // 留言板事件
     root.addEventListener('click', async function(e) {
-      const t = e.target;
-      if (t.getAttribute('data-send-msg')) {
+      const t = e.target.closest('[data-week-day],[data-task-check],[data-task-delay],[data-send-msg],[data-del-msg]');
+      if (!t) return;
+      if (t.getAttribute('data-week-day')) {
+        selectedDay = +t.getAttribute('data-week-day');
+        App.render();
+      } else if (t.getAttribute('data-task-check')) {
+        const id = +t.getAttribute('data-task-check');
+        const task = await DB.get('tasks', id);
+        if (task) {
+          task.done = !task.done;
+          await DB.put('tasks', task);
+          App.render();
+        }
+      } else if (t.getAttribute('data-task-delay')) {
+        const id = +t.getAttribute('data-task-delay');
+        const task = await DB.get('tasks', id);
+        if (task) {
+          task.due = UI.todayStr();
+          await DB.put('tasks', task);
+          UI.toast('已延期到今天');
+          App.render();
+        }
+      } else if (t.getAttribute('data-send-msg')) {
         const input = document.getElementById('msg-input');
         const text = input.value.trim();
         if (!text) { UI.toast('写点什么吧'); return; }
@@ -209,11 +302,11 @@ const HomePage = (function() {
         document.querySelector('[data-send-msg]').click();
       }
     });
-    // 清除旧时钟，避免重复
+    // 时钟
     if (timer) { clearInterval(timer); timer = null; }
     function tick() {
       const c = document.getElementById('hw-clock');
-      if (!c) return; // 已切走页面
+      if (!c) return;
       const now = new Date();
       c.textContent = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
       const d = document.getElementById('hw-date');
@@ -222,7 +315,6 @@ const HomePage = (function() {
       if (g) g.textContent = greeting(now.getHours()) + '，欢迎回到朱林之家 🏠';
     }
     timer = setInterval(tick, 1000);
-    // 加载天气
     loadWeather();
   }
 

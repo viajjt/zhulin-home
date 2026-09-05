@@ -127,12 +127,26 @@ const MinePage = (function() {
       '<div class="kv"><span class="k">首页实时天气</span><span class="v"><select id="m-city" style="width:auto;min-width:120px;">' + cityOpts + '</select></span></div>' +
     '</div>';
 
-    // 通知偏好（演示开关）
+    // 通知偏好（真正可切换）
     html += '<div class="section-title">🔔 通知偏好</div>';
     html += '<div class="card">';
-    ['任务到期','库存不足/临期','旅行出行','点餐/做饭','纪念日'].forEach(function(n) {
-      html += '<div class="kv"><span class="k">' + n + '</span><span class="pill grn">开</span></div>';
-    });
+    const notifItems = [
+      { key: 'notif_task', label: '任务到期' },
+      { key: 'notif_stock', label: '库存不足/临期' },
+      { key: 'notif_trip', label: '旅行出行' },
+      { key: 'notif_meal', label: '点餐/做饭' },
+      { key: 'notif_anniv', label: '纪念日' }
+    ];
+    for (const item of notifItems) {
+      const on = await DB.getSetting(item.key);
+      const checked = on !== false; // 默认开启
+      html += '<div class="kv"><span class="k">' + item.label + '</span><span class="v">' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">' +
+        '<input type="checkbox" data-notif="' + item.key + '" ' + (checked ? 'checked' : '') + ' style="width:18px;height:18px;"> ' +
+        '<span style="font-size:12px;color:' + (checked ? 'var(--green-2)' : 'var(--sub)') + ';font-weight:700;">' + (checked ? '开' : '关') + '</span>' +
+        '</label></span></div>';
+    }
+    html += '<div style="font-size:11px;color:var(--sub);margin-top:6px;">页面打开时有效，需允许浏览器通知权限。</div>';
     html += '</div>';
 
     // 财务功能（密码锁）
@@ -429,6 +443,11 @@ const MinePage = (function() {
         await DB.setSetting('finance_enabled', t.checked ? true : false);
         document.body.classList.toggle('finance-on', t.checked);
         UI.toast(t.checked ? '财务功能已开启' : '财务功能已关闭');
+        App.render();
+      } else if (t.getAttribute('data-notif')) {
+        const key = t.getAttribute('data-notif');
+        await DB.setSetting(key, t.checked ? true : false);
+        UI.toast(t.checked ? '已开启' : '已关闭');
         App.render();
       }
     });

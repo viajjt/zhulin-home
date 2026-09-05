@@ -143,23 +143,27 @@ const MealPage = (function() {
       }
     }
 
-    // 菜谱库（可自定义增删改）
-    html += '<div class="section-title">📖 菜谱库（' + dishes.length + '）</div>';
+    // 菜谱库（可自定义增删改、启用停用）
+    const enabledDishes = dishes.filter(function(d) { return d.enabled !== false; });
+    const disabledDishes = dishes.filter(function(d) { return d.enabled === false; });
+    html += '<div class="section-title">📖 菜谱库（可用' + enabledDishes.length + '，已停用' + disabledDishes.length + '）</div>';
     if (dishes.length) {
       html += '<div class="grid2">';
       dishes.forEach(function(d) {
+        const isDisabled = d.enabled === false;
         const imgHtml = d.img
-          ? '<img src="' + d.img + '" style="width:56px;height:56px;border-radius:12px;object-fit:cover;">'
-          : '<div style="width:56px;height:56px;border-radius:12px;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;font-size:26px;">🍽️</div>';
-        html += '<div class="card" style="flex:1 1 200px;">' +
+          ? '<img src="' + d.img + '" style="width:56px;height:56px;border-radius:12px;object-fit:cover;' + (isDisabled ? 'opacity:0.4;filter:grayscale(1);' : '') + '">'
+          : '<div style="width:56px;height:56px;border-radius:12px;background:var(--pink-bg);display:flex;align-items:center;justify-content:center;font-size:26px;' + (isDisabled ? 'opacity:0.4;' : '') + '">🍽️</div>';
+        html += '<div class="card' + (isDisabled ? ' disabled' : '') + '" style="flex:1 1 200px;' + (isDisabled ? 'opacity:0.6;background:#f5f5f5;' : '') + '">' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
             imgHtml +
-            '<div class="txt" style="flex:1;min-width:0;"><div class="t1">' + UI.esc(d.name) + '</div><div class="t2">' + (d.catn||'') + ' · ' + d.time + 'min</div></div>' +
+            '<div class="txt" style="flex:1;min-width:0;"><div class="t1">' + UI.esc(d.name) + (isDisabled ? ' <span class="pill gray" style="font-size:10px;">已停用</span>' : '') + '</div><div class="t2">' + (d.catn||'') + ' · ' + d.time + 'min</div></div>' +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-            '<button class="btn sm" data-pick="' + d.id + '">选这道菜</button>' +
+            (isDisabled ? '' : '<button class="btn sm" data-pick="' + d.id + '">选这道菜</button>') +
             '<button class="btn sm ghost" data-see="' + d.id + '">详情</button>' +
             '<button class="btn sm ghost" data-edit-dish="' + d.id + '">改</button>' +
+            '<button class="btn sm ghost" data-toggle-dish="' + d.id + '" style="' + (isDisabled ? 'color:var(--green);' : 'color:var(--orange);') + '">' + (isDisabled ? '启用' : '停用') + '</button>' +
             '<button class="btn sm ghost" data-del-dish="' + d.id + '" style="color:var(--red);">删</button>' +
           '</div>' +
         '</div>';
@@ -184,7 +188,8 @@ const MealPage = (function() {
   }
 
   function openPlanForm() {
-    DB.getAll('dishes').then(function(dishes) {
+    DB.getAll('dishes').then(function(allDishes) {
+      const dishes = allDishes.filter(function(d) { return d.enabled !== false; });
       const dishOpts = dishes.map(function(d) {
         return '<option value="' + d.id + '">' + UI.esc(d.name) + '（' + d.time + 'min）</option>';
       }).join('');
@@ -538,12 +543,22 @@ const MealPage = (function() {
     const nd = t.getAttribute('data-new-dish');
     const ed = t.getAttribute('data-edit-dish');
     const dd = t.getAttribute('data-del-dish');
+    const td = t.getAttribute('data-toggle-dish');
     if (np) openPlanForm();
     else if (tm) showTemplates();
     else if (pk) showDishDetail(+pk);
     else if (see) showDishDetail(+see);
     else if (nd) openDishForm(null);
     else if (ed) openDishForm(await DB.get('dishes', +ed));
+    else if (td) {
+      const dish = await DB.get('dishes', +td);
+      if (dish) {
+        dish.enabled = dish.enabled === false ? true : false;
+        await DB.put('dishes', dish);
+        UI.toast(dish.enabled ? '已启用' : '已停用');
+        App.render();
+      }
+    }
     else if (dd) {
       const id = +dd;
       UI.openModal('<h3>删除菜谱</h3><p style="color:var(--sub);font-size:14px;margin-bottom:8px;">确定删除这道菜谱吗？历史餐单记录不受影响。</p><div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-ok="1" style="background:var(--red);">删除</button></div>');

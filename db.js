@@ -275,33 +275,62 @@ const DB = (function() {
     }
   }
 
-  // 清理重复数据：按 uid 去重，同 uid 保留 updated 最新的
+  // 各表业务去重关键字段（同字段值视为重复）
+  const DEDUPE_KEYS = {
+    families: ['name'],
+    members: ['name'],
+    tasks: ['title', 'date', 'time'],
+    inventory_items: ['name'],
+    trips: ['dest', 'start'],
+    packing_items: ['tripId', 'name'],
+    anniversaries: ['name', 'date'],
+    milestones: ['tripId', 'title'],
+    dishes: ['name'],
+    meal_plans: ['date', 'dishes', 'cook', 'meal_type'],
+    meal_templates: ['name'],
+    shopping_items: ['name'],
+    budgets: ['year'],
+    transactions: ['date', 'amount', 'category', 'note'],
+    messages: ['text', 'sender']
+  };
+
+  // 清理重复数据：先按 uid 去重，再按业务关键字段去重
   async function dedupe() {
     await open();
     let total = 0;
     for (const table of SYNC_TABLES) {
       try {
         const rows = await getAll(table);
-        const seen = {};
-        const toDelete = [];
+        // 1) 按 uid 去重
+        const seenUid = {};
+        let toDelete = [];
         rows.forEach(function(r) {
           const u = r.uid || ('_noid_' + r.id);
-          if (!seen[u]) {
-            seen[u] = r;
-          } else {
-            // 保留 updated 更大的
-            if ((r.updated || 0) > (seen[u].updated || 0)) {
-              toDelete.push(seen[u].id);
-              seen[u] = r;
-            } else {
-              toDelete.push(r.id);
-            }
+          if (!seenUid[u]) { seenUid[u] = r; }
+          else {
+            if ((r.updated || 0) > (seenUid[u].updated || 0)) { toDelete.push(seenUid[u].id); seenUid[u] = r; }
+            else { toDelete.push(r.id); }
           }
         });
-        for (const id of toDelete) {
-          await del(table, id);
-          total++;
+        // 2) 按业务关键字段去重（针对 uid 不同但内容重复的记录）
+        const keys = DEDUPE_KEYS[table];
+        if (keys) {
+          const remaining = rows.filter(function(r) { return toDelete.indexOf(r.id) < 0; });
+          const seenBiz = {};
+          remaining.forEach(function(r) {
+            const bizKey = keys.map(function(k) { return r[k] || ''; }).join('|');
+            if (!bizKey.replace(/\|/g,'')) return; // 空字段不参与
+            if (!seenBiz[bizKey]) { seenBiz[bizKey] = r; }
+            else {
+              if ((r.updated || 0) > (seenBiz[bizKey].updated || 0)) {
+                toDelete.push(seenBiz[bizKey].id); seenBiz[bizKey] = r;
+              } else {
+                toDelete.push(r.id);
+              }
+            }
+          });
         }
+        for (const id of toDelete) { await del(table, id); total++; }
       } catch(e) {}
     }
     return total;

@@ -38,10 +38,30 @@ const FinancePage = (function() {
     return b;
   }
 
-  function catMonthly(budget, type, name) {
+  // 获取某分类某月的预算金额（兼容旧数据：数字→12个月数组）
+  function getMonthAmt(cat, monthIdx) {
+    if (!cat) return 0;
+    if (Array.isArray(cat.monthly)) {
+      return +cat.monthly[monthIdx] || 0;
+    }
+    // 旧数据：monthly 是数字，所有月份相同
+    return +cat.monthly || 0;
+  }
+
+  // 设置某分类某月的预算金额（自动转换为数组）
+  function setMonthAmt(cat, monthIdx, val) {
+    if (!Array.isArray(cat.monthly)) {
+      const old = +cat.monthly || 0;
+      cat.monthly = [];
+      for (let i = 0; i < 12; i++) cat.monthly.push(old);
+    }
+    cat.monthly[monthIdx] = +val || 0;
+  }
+
+  function catMonthly(budget, type, name, monthIdx) {
     const arr = type === 'income' ? budget.income_cats : budget.expense_cats;
     const c = arr.find(function(x) { return x.name === name; });
-    return c ? +c.monthly || 0 : 0;
+    return c ? getMonthAmt(c, monthIdx != null ? monthIdx : new Date().getMonth()) : 0;
   }
 
   // ===== 统计 =====
@@ -82,9 +102,10 @@ const FinancePage = (function() {
     const budget = await ensureBudget(year);
     const st = await monthStats(curMonth);
 
-    // 月度预算总额
-    const budgetIncome = budget.income_cats.reduce(function(s, c) { return s + (+c.monthly || 0); }, 0);
-    const budgetExpense = budget.expense_cats.reduce(function(s, c) { return s + (+c.monthly || 0); }, 0);
+    // 月度预算总额（按当前月份）
+    const monthIdx = +curMonth.slice(5, 7) - 1;
+    const budgetIncome = budget.income_cats.reduce(function(s, c) { return s + getMonthAmt(c, monthIdx); }, 0);
+    const budgetExpense = budget.expense_cats.reduce(function(s, c) { return s + getMonthAmt(c, monthIdx); }, 0);
 
     let html = '';
     // 月份选择 + 概览
@@ -155,25 +176,28 @@ const FinancePage = (function() {
 
   // ===== 预算设置 =====
   function budgetHtml(budget) {
+    const monthIdx = +curMonth.slice(5, 7) - 1;
     let html = '';
     html += '<div class="section-title">收入分类（月度预测）</div>';
-    html += catListHtml(budget.income_cats, 'income');
+    html += catListHtml(budget.income_cats, 'income', monthIdx);
     html += '<div style="margin-top:12px;"><button class="btn sm ghost" data-add-cat="income">+ 添加收入分类</button></div>';
 
     html += '<div class="section-title" style="margin-top:18px;">支出分类（月度预算）</div>';
-    html += catListHtml(budget.expense_cats, 'expense');
+    html += catListHtml(budget.expense_cats, 'expense', monthIdx);
     html += '<div style="margin-top:12px;"><button class="btn sm ghost" data-add-cat="expense">+ 添加支出分类</button></div>';
-    html += '<div style="margin-top:14px;font-size:12px;color:var(--sub);">修改后自动保存，所有设备同步。预算按年设置，每月自动套用。</div>';
+    html += '<div style="margin-top:14px;font-size:12px;color:var(--sub);">点「📅月度」可设置每个月不同金额（如春节月餐饮预算更高）。修改后自动保存。</div>';
     return html;
   }
 
-  function catListHtml(cats, type) {
+  function catListHtml(cats, type, monthIdx) {
     let html = '<div class="card" style="padding:0;">';
     cats.forEach(function(c, i) {
+      const curAmt = getMonthAmt(c, monthIdx);
       html += '<div class="kv" style="padding:10px 14px;' + (i < cats.length - 1 ? 'border-bottom:1px solid var(--border);' : '') + '">' +
-        '<span class="k" style="font-weight:500;">' + UI.esc(c.name) + '</span>' +
+        '<span class="k" style="font-weight:600;">' + UI.esc(c.name) + '</span>' +
         '<span class="v">' +
-          '<input type="number" class="input" data-cat-amt="' + type + '|' + i + '" value="' + (c.monthly || 0) + '" style="width:90px;text-align:right;margin-right:8px;">' +
+          '<input type="number" class="input" data-cat-amt="' + type + '|' + i + '" value="' + curAmt + '" style="width:80px;text-align:right;margin-right:6px;" title="当月金额">' +
+          '<button class="btn sm ghost" data-cat-monthly="' + type + '|' + i + '" title="设置各月不同金额">📅月度</button>' +
           '<button class="btn sm ghost" data-cat-edit="' + type + '|' + i + '">改名</button>' +
           '<button class="btn sm ghost" data-cat-del="' + type + '|' + i + '" style="color:var(--red);">删</button>' +
         '</span></div>';
@@ -182,15 +206,63 @@ const FinancePage = (function() {
     return html;
   }
 
+  // 月度预算设置弹窗
+  function openMonthlyBudget(type, idx) {
+    const year = curMonth.slice(0, 4);
+    DB.getAll('budgets').then(function(all) {
+      const budget = all.find(function(x) { return x.year == year; });
+      if (!budget) return;
+      const arr = type === 'income' ? budget.income_cats : budget.expense_cats;
+      const cat = arr[idx];
+      if (!cat) return;
+      const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+      let inputs = '';
+      for (let m = 0; m < 12; m++) {
+        inputs += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
+          '<span style="width:36px;font-size:12px;font-weight:600;color:var(--sub);">' + monthNames[m] + '</span>' +
+          '<input type="number" class="input monthly-input" data-m="' + m + '" value="' + getMonthAmt(cat, m) + '" style="flex:1;text-align:right;">' +
+        '</div>';
+      }
+      UI.openModal(
+        '<h3>📅 ' + cat.name + ' - 各月预算</h3>' +
+        '<div style="display:flex;gap:8px;margin-bottom:10px;">' +
+          '<input type="number" id="batch-amt" class="input" placeholder="批量设置金额" style="flex:1;">' +
+          '<button class="btn sm" id="batch-apply">应用到全年</button>' +
+        '</div>' +
+        '<div style="max-height:320px;overflow-y:auto;">' + inputs + '</div>' +
+        '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save-monthly="1">保存</button></div>'
+      );
+      const modal = document.querySelector('.modal');
+      modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
+      modal.querySelector('#batch-apply').addEventListener('click', function() {
+        const val = document.getElementById('batch-amt').value;
+        if (val) {
+          modal.querySelectorAll('.monthly-input').forEach(function(inp) { inp.value = val; });
+        }
+      });
+      modal.querySelector('[data-save-monthly]').addEventListener('click', async function() {
+        modal.querySelectorAll('.monthly-input').forEach(function(inp) {
+          const m = +inp.getAttribute('data-m');
+          setMonthAmt(cat, m, inp.value);
+        });
+        await DB.put('budgets', budget);
+        UI.closeModal();
+        UI.toast('月度预算已保存');
+        App.render();
+      });
+    });
+  }
+
   // ===== 图表 =====
   function chartHtml(st, budget, budgetExpense) {
+    const monthIdx = +curMonth.slice(5, 7) - 1;
     let html = '';
     // 支出分类进度条
     html += '<div class="section-title">本月支出预算进度</div>';
     html += '<div class="card">';
     budget.expense_cats.forEach(function(c, i) {
       const used = st.byCat[c.name] || 0;
-      const limit = +c.monthly || 0;
+      const limit = getMonthAmt(c, monthIdx);
       const pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
       const color = pct >= 100 ? '#E87B7B' : (pct >= 80 ? '#E8A33D' : CAT_COLORS[i % CAT_COLORS.length]);
       html += '<div style="margin-bottom:10px;">' +
@@ -430,10 +502,13 @@ const FinancePage = (function() {
         arr.splice(idx, 1);
         await DB.put('budgets', budget);
         UI.toast('已删除'); App.render();
+      } else if (t.getAttribute('data-cat-monthly')) {
+        const parts = t.getAttribute('data-cat-monthly').split('|');
+        openMonthlyBudget(parts[0], +parts[1]);
       }
     });
 
-    // 分类金额输入自动保存
+    // 分类金额输入自动保存（设置当前月金额）
     root.addEventListener('change', async function(e) {
       const t = e.target;
       const attr = t.getAttribute('data-cat-amt');
@@ -441,11 +516,12 @@ const FinancePage = (function() {
         const parts = attr.split('|');
         const type = parts[0], idx = +parts[1];
         const year = curMonth.slice(0, 4);
+        const monthIdx = +curMonth.slice(5, 7) - 1;
         const budget = await ensureBudget(year);
         const arr = type === 'income' ? budget.income_cats : budget.expense_cats;
-        arr[idx].monthly = +t.value || 0;
+        setMonthAmt(arr[idx], monthIdx, t.value);
         await DB.put('budgets', budget);
-        UI.toast('已保存');
+        UI.toast('当月预算已保存');
       }
     });
 

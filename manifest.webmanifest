@@ -1,7 +1,7 @@
-﻿{
-  "name": "鏈辨灄涔嬪",
-  "short_name": "鏈辨灄涔嬪",
-  "description": "鍏ㄥ鍏变韩鐨勫搴鐞嗗簲鐢細鏃ョ▼寰呭姙銆佺墿鍝佸簱瀛樸€佹梾琛岃鍒掋€佺邯蹇垫棩銆佸搴偣椁?,
+{
+  "name": "朱林之家",
+  "short_name": "朱林之家",
+  "description": "全家共享的家庭管理应用：日程待办、物品库存、旅行规划、纪念日、家庭点餐",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -11,17 +11,16 @@
   "lang": "zh-CN",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icon-512.png",
+      "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }
   ]
 }
-

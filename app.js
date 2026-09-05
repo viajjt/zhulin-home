@@ -3,9 +3,8 @@ const App = (function() {
   const PAGES = [
     { id: 'home',  label: '首页',   ic: '🏠', page: HomePage },
     { id: 'trip',  label: '旅行',   ic: '✈️', page: TripPage },
-    { id: 'cal',   label: '日程',   ic: '📅', page: CalPage },
+    { id: 'calendar', label: '日历', ic: '📅', page: CalendarPage },
     { id: 'stock', label: '库存',   ic: '📦', page: StockPage },
-    { id: 'memo',  label: '纪念日', ic: '🎉', page: MemoPage },
     { id: 'meal',  label: '点餐',   ic: '🍽️', page: MealPage },
     { id: 'finance', label: '财务', ic: '💰', page: FinancePage },
     { id: 'mine',  label: '设置',   ic: '⚙️', page: MinePage }
@@ -15,9 +14,44 @@ const App = (function() {
 
   function navHtml() {
     return PAGES.map(function(p) {
+      const extra = p.id === 'finance' ? '<div class="fin-progress" id="fin-nav-progress"><div class="fin-progress-bar" style="width:0%"></div></div>' : '';
       return '<a href="#/' + p.id + '" class="' + (p.id === current ? 'active' : '') + '" data-nav="' + p.id + '">' +
-        '<span class="ic">' + p.ic + '</span>' + p.label + '</a>';
+        '<span class="ic">' + p.ic + '</span>' + p.label + extra + '</a>';
     }).join('');
+  }
+
+  // 异步更新财务导航年度进度条
+  async function updateFinNavProgress() {
+    const el = document.getElementById('fin-nav-progress');
+    if (!el) return;
+    try {
+      const enabled = await DB.getSetting('finance_enabled');
+      if (!enabled) { el.style.display = 'none'; return; }
+      const year = new Date().getFullYear();
+      const budgets = await DB.getAll('budgets');
+      const budget = budgets.find(function(b) { return b.year == year; });
+      const txs = await DB.getAll('transactions');
+      let totalBudget = 0, totalExpense = 0;
+      const monthIdx = new Date().getMonth();
+      if (budget) {
+        budget.expense_cats.forEach(function(c) {
+          if (Array.isArray(c.monthly)) totalBudget += c.monthly.reduce(function(s, v) { return s + (+v || 0); }, 0);
+          else totalBudget += (+c.monthly || 0) * 12;
+        });
+      }
+      txs.forEach(function(t) {
+        if (t.type !== 'income' && (t.date || '').slice(0, 4) == year) {
+          totalExpense += +t.amount || 0;
+        }
+      });
+      const pct = totalBudget > 0 ? Math.min(100, Math.round(totalExpense / totalBudget * 100)) : 0;
+      const bar = el.querySelector('.fin-progress-bar');
+      if (bar) {
+        bar.style.width = pct + '%';
+        bar.style.background = pct >= 100 ? '#FF6B6B' : pct >= 80 ? '#FF9F68' : '#FFD93D';
+      }
+      el.title = '年度支出 ' + pct + '%（已花 ¥' + totalExpense.toLocaleString() + ' / 预算 ¥' + totalBudget.toLocaleString() + '）';
+    } catch(e) {}
   }
 
   function pageTitle() {
@@ -101,23 +135,90 @@ const App = (function() {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       if (document.visibilityState !== 'visible') return;
       const today = new Date().toISOString().slice(0, 10);
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
       try {
-        const tasks = await DB.getAll('tasks');
-        tasks.forEach(function(t) {
-          if (!t.done && t.date === today && !notified.has('task-' + t.id)) {
-            notified.add('task-' + t.id);
-            new Notification('📋 今日待办', { body: t.title || '有任务待完成', icon: '' });
-          }
-        });
-        const anns = await DB.getAll('anniversaries');
-        anns.forEach(function(a) {
-          const md = (a.date || '').slice(5);
+        // 读取通知偏好（默认全部开启）
+        const notif = {
+          task: (await DB.getSetting('notif_task')) !== false,
+          stock: (await DB.getSetting('notif_stock')) !== false,
+          trip: (await DB.getSetting('notif_trip')) !== false,
+          meal: (await DB.getSetting('notif_meal')) !== false,
+          anniv: (await DB.getSetting('notif_anniv')) !== false
+        };
+
+        // 任务到期提醒（今天 + 明天提前提醒）
+        if (notif.task) {
+          const tasks = await DB.getAll('tasks');
+          tasks.forEach(function(t) {
+            if (!t.done && t.due) {
+              if (t.due === today && !notified.has('task-today-' + t.id)) {
+                notified.add('task-today-' + t.id);
+                new Notification('📋 今日待办', { body: t.title || '有任务待完成', icon: '' });
+              } else if (t.due === tomorrow && !notified.has('task-tomorrow-' + t.id)) {
+                notified.add('task-tomorrow-' + t.id);
+                new Notification('⏰ 明天待办', { body: '明天：' + (t.title || '有任务待完成'), icon: '' });
+              }
+            }
+          });
+        }
+
+        // 纪念日提醒（今天 + 明天提前提醒，支持每年重复）
+        if (notif.anniv) {
+          const anns = await DB.getAll('anniversaries');
           const todayMd = today.slice(5);
-          if (md === todayMd && !notified.has('ann-' + a.id)) {
-            notified.add('ann-' + a.id);
-            new Notification('🎉 纪念日', { body: (a.title || a.name || '今天是个重要日子') + '（每年）', icon: '' });
-          }
-        });
+          const tomorrowMd = tomorrow.slice(5);
+          anns.forEach(function(a) {
+            const md = (a.date || '').slice(5);
+            if (md === todayMd && !notified.has('ann-today-' + a.id)) {
+              notified.add('ann-today-' + a.id);
+              new Notification('🎉 纪念日', { body: (a.title || a.name || '今天是个重要日子') + (a.repeat !== false ? '（每年）' : ''), icon: '' });
+            } else if (md === tomorrowMd && !notified.has('ann-tomorrow-' + a.id)) {
+              notified.add('ann-tomorrow-' + a.id);
+              new Notification('🎂 明天纪念日', { body: '明天：' + (a.title || a.name || '重要日子'), icon: '' });
+            }
+          });
+        }
+
+        // 库存临期提醒（3天内到期）
+        if (notif.stock) {
+          const stocks = await DB.getAll('inventory_items');
+          stocks.forEach(function(it) {
+            if (it.expire) {
+              const d = Math.ceil((new Date(it.expire) - new Date(today)) / 86400000);
+              if (d >= 0 && d <= 3 && !notified.has('stock-' + it.id)) {
+                notified.add('stock-' + it.id);
+                new Notification('🥛 库存临期', { body: it.name + (d === 0 ? '今天到期' : d + '天后到期'), icon: '' });
+              }
+            }
+          });
+        }
+
+        // 旅行出行提醒（明天出发）
+        if (notif.trip) {
+          const trips = await DB.getAll('trips');
+          trips.forEach(function(tp) {
+            if (tp.start === tomorrow && !notified.has('trip-' + tp.id)) {
+              notified.add('trip-' + tp.id);
+              const dest = tp.destinations && tp.destinations.length ? tp.destinations.map(function(x){return x.name;}).join('→') : (tp.dest || '旅行');
+              new Notification('✈️ 明天出发', { body: dest + ' · ' + (tp.people || '') + '人', icon: '' });
+            }
+          });
+        }
+
+        // 点餐/做饭提醒（开饭前4小时）
+        if (notif.meal) {
+          const meals = await DB.getAll('meal_plans');
+          meals.forEach(function(m) {
+            if (m.date === today && m.time) {
+              const mealTime = new Date(today + 'T' + m.time + ':00');
+              const diffHours = (mealTime - new Date()) / 3600000;
+              if (diffHours > 3.5 && diffHours <= 4.5 && !notified.has('meal-' + m.id)) {
+                notified.add('meal-' + m.id);
+                new Notification('🍳 该做饭了', { body: (m.dishes || '点餐') + ' · ' + m.time, icon: '' });
+              }
+            }
+          });
+        }
       } catch(e) {}
     }
     check();
@@ -142,6 +243,7 @@ const App = (function() {
     if (typeof DB !== 'undefined' && DB.getSetting) {
       DB.getSetting('finance_enabled').then(function(on) {
         document.body.classList.toggle('finance-on', !!on);
+        if (on) updateFinNavProgress();
       }).catch(function() {});
     }
     // 本地提醒：请求通知权限 + 定时检查任务/纪念日
