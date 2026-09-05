@@ -235,10 +235,10 @@ const MealPage = (function() {
           const meal_type = document.getElementById('p-type').value;
           const time = document.getElementById('p-time').value;
           const cook = document.getElementById('p-cook').value || null;
-          const selectedIds = Array.from(modal.querySelectorAll('.dish-pick.selected')).map(function(c) { return +c.getAttribute('data-dish-id'); });
+          const selectedIds = Array.from(new Set(Array.from(modal.querySelectorAll('.dish-pick.selected')).map(function(c) { return +c.getAttribute('data-dish-id'); })));
           if (!date || !selectedIds.length) { UI.toast('请选择日期和至少一道菜'); return; }
           const selectedDishes = dishes.filter(function(d) { return selectedIds.indexOf(d.id) >= 0; });
-          const dishNames = selectedDishes.map(function(d) { return d.name; }).join('、');
+          const dishNames = Array.from(new Set(selectedDishes.map(function(d) { return d.name; }))).join('、');
           // 加入餐单
           await DB.add('meal_plans', {
             date: date, meal_type: meal_type,

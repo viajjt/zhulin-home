@@ -1,27 +1,28 @@
 ﻿/* 瀹跺涵绠＄悊绯荤粺 - Service Worker
    缂撳瓨搴旂敤澹宠祫婧愶紝鏀寔绂荤嚎浣跨敤 */
-const CACHE = 'family-hub-v8';
+const CACHE = 'family-hub-v9';
 const CORE = [
   './',
-  './index.html?v=14',
-  './style.css?v=14',
+  './index.html?v=15',
+  './style.css?v=15',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
-  './app.js?v=14',
-  './db.js?v=14',
-  './ai.js?v=14',
-  './lunar.js?v=14',
-  './weather.js?v=14',
-  './ui.js?v=14',
-  './home.js?v=14',
-  './cal.js?v=14',
-  './stock.js?v=14',
-  './trip.js?v=14',
-  './memo.js?v=14',
-  './meal.js?v=14',
-  './finance.js?v=14',
-  './mine.js?v=14'
+  './app.js?v=15',
+  './db.js?v=15',
+  './ai.js?v=15',
+  './lunar.js?v=15',
+  './weather.js?v=15',
+  './ui.js?v=15',
+  './home.js?v=15',
+  './cal.js?v=15',
+  './stock.js?v=15',
+  './trip.js?v=15',
+  './memo.js?v=15',
+  './meal.js?v=15',
+  './finance.js?v=15',
+  './voice.js?v=15',
+  './mine.js?v=15'
 ];
 
 self.addEventListener('install', function(e) {
@@ -73,5 +74,6 @@ self.addEventListener('fetch', function(e) {
     })
   );
 });
+
 
 

@@ -494,5 +494,5 @@ const FinancePage = (function() {
     el.innerHTML = svg;
   }
 
-  return { body: body, bind: bind, simpleHash: simpleHash };
+  return { body: body, bind: bind, simpleHash: simpleHash, ensureBudget: ensureBudget };
 })();

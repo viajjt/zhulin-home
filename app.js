@@ -44,6 +44,10 @@ const App = (function() {
     UI.closeModal(); // 切换页面时关闭可能残留的模态框
     const p = PAGES.find(function(x) { return x.id === current; });
     if (!p) { current = 'home'; return render(); }
+    // 克隆 rootEl 清除所有旧事件监听器（防止页面间事件冲突）
+    const newEl = rootEl.cloneNode(false);
+    rootEl.parentNode.replaceChild(newEl, rootEl);
+    rootEl = newEl;
     const content = await p.page.body();
     rootEl.innerHTML = content;
     p.page.bind(rootEl);
