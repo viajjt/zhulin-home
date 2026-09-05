@@ -145,6 +145,10 @@ const App = (function() {
       Notification.requestPermission().catch(function() {});
     }
     startNotifier();
+    // 语音助手（卡通小狗）
+    if (typeof VoiceAssistant !== 'undefined') {
+      VoiceAssistant.init();
+    }
     // 注册 Service Worker（PWA 离线）
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(function() { /* 忽略：非 http 环境或已失败 */ });
