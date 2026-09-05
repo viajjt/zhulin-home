@@ -155,7 +155,7 @@ const MinePage = (function() {
     html += '<div class="card">' +
       '<div class="kv"><span class="k">多设备同步</span><span class="v"><span class="pill ' + (syncStatus.configured ? 'grn' : 'gray') + '">' + (syncStatus.configured ? '已连接 Supabase' : '本地模式') + '</span></span></div>' +
       (syncStatus.configured ? '<div class="kv"><span class="k">上次同步</span><span class="v" style="font-size:12px;">' + fmtSyncTime(syncStatus.last) + '</span></div>' : '') +
-      '<div class="kv"><span class="k">导出数据（JSON）</span><span class="v"><button class="btn sm ghost" data-export="1">导出</button> <button class="btn sm ghost" data-import="1">导入</button></span></div>' +
+      '<div class="kv"><span class="k">导出数据（JSON）</span><span class="v"><button class="btn sm ghost" data-export="1">导出</button> <button class="btn sm ghost" data-import="1">导入</button> <button class="btn sm ghost" data-dedupe="1" style="color:var(--org);">清理重复</button></span></div>' +
       (syncStatus.configured ? '<div class="kv"><span class="k">立即同步</span><button class="btn sm" data-dosync="1">同步</button></div>' : '') +
       '<div class="kv"><span class="k">同步设置</span><button class="btn sm ghost" data-sync="1">配置</button></div>' +
     '</div>';
@@ -351,6 +351,13 @@ const MinePage = (function() {
     }
     else if (ex) exportData();
     else if (t.getAttribute('data-import')) importData();
+    else if (t.getAttribute('data-dedupe')) {
+      if (!confirm('将清理所有表中 uid 重复的数据（保留最新版本），确定继续？')) return;
+      DB.dedupe().then(function(n) {
+        UI.toast('已清理 ' + n + ' 条重复数据');
+        App.render();
+      });
+    }
     else if (sy) openSyncForm();
     else if (ds) doSync();
     else if (rl) openRoleManager();

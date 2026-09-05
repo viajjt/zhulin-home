@@ -275,6 +275,38 @@ const DB = (function() {
     }
   }
 
+  // 清理重复数据：按 uid 去重，同 uid 保留 updated 最新的
+  async function dedupe() {
+    await open();
+    let total = 0;
+    for (const table of SYNC_TABLES) {
+      try {
+        const rows = await getAll(table);
+        const seen = {};
+        const toDelete = [];
+        rows.forEach(function(r) {
+          const u = r.uid || ('_noid_' + r.id);
+          if (!seen[u]) {
+            seen[u] = r;
+          } else {
+            // 保留 updated 更大的
+            if ((r.updated || 0) > (seen[u].updated || 0)) {
+              toDelete.push(seen[u].id);
+              seen[u] = r;
+            } else {
+              toDelete.push(r.id);
+            }
+          }
+        });
+        for (const id of toDelete) {
+          await del(table, id);
+          total++;
+        }
+      } catch(e) {}
+    }
+    return total;
+  }
+
   async function startAutoSync() {
     const conf = await getSyncConf();
     if (!conf || !conf.url || !conf.key) return;
@@ -333,6 +365,7 @@ const DB = (function() {
     setSetting: setSetting, getSetting: getSetting,
     syncNow: syncNow, getSyncConf: getSyncConf, getSyncStatus: getSyncStatus,
     startAutoSync: startAutoSync, stopAutoSync: stopAutoSync,
+    dedupe: dedupe,
     getFamilyName: getFamilyName, setFamilyName: setFamilyName,
     STORES: STORES, SYNC_TABLES: SYNC_TABLES
   };
