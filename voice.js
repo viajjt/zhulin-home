@@ -160,6 +160,14 @@ const VoiceAssistant = (function() {
   async function handleIntent(intent, rawText) {
     const name = await getName();
     if (!intent || !intent.type || intent.type === 'unknown') {
+      // AI 已配置时用智能对话
+      if (typeof AI !== 'undefined' && AI.getConf) {
+        const conf = await AI.getConf();
+        if (conf.enabled) {
+          const r = await AI.chat(rawText, '你是一个叫' + name + '的可爱卡通小狗家庭助手，性格活泼，用中文回答，简洁亲切，偶尔用汪星人语气。');
+          if (r.ok && r.text) return r.text;
+        }
+      }
       return fallbackReply(rawText);
     }
     if (intent.type === 'expense') {

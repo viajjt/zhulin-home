@@ -290,9 +290,13 @@ const MealPage = (function() {
       '</div>' +
       '<div class="field"><label>食材（每行一项，格式：名称 用量）</label><textarea id="d-ing" rows="4" placeholder="排骨 500g&#10;姜 3片">' + UI.esc(dish && dish.ing ? dish.ing.map(function(p){return p.join(' ');}).join('\n') : '') + '</textarea></div>' +
       '<div class="field"><label>调料（每行一项，格式：名称 用量）</label><textarea id="d-sea" rows="3" placeholder="生抽 2勺">' + UI.esc(dish && dish.sea ? dish.sea.map(function(p){return p.join(' ');}).join('\n') : '') + '</textarea></div>' +
-      '<div class="field"><label>菜品图（本地上传，可选）</label>' +
-        '<input type="file" id="d-img" accept="image/*" style="margin-bottom:6px;">' +
+      '<div class="field"><label>菜品图（本地上传或 AI 生成，可选）</label>' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">' +
+          '<input type="file" id="d-img" accept="image/*" style="flex:1;min-width:150px;">' +
+          '<button type="button" class="btn sm ghost" id="d-ai-gen" style="background:var(--pur-bg);color:var(--pur);white-space:nowrap;">✨ AI 生成</button>' +
+        '</div>' +
         '<div id="d-img-preview" style="max-width:120px;max-height:120px;border-radius:10px;overflow:hidden;background:#f5f0eb;display:flex;align-items:center;justify-content:center;font-size:32px;">' + (dish && dish.img ? '<img src="' + dish.img + '" style="width:100%;height:100%;object-fit:cover;">' : '🍽️') + '</div>' +
+        '<input type="hidden" id="d-ai-img" value="">' +
       '</div>' +
       '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save="1">保存</button></div>'
     );
@@ -314,9 +318,17 @@ const MealPage = (function() {
       });
       const ai = document.getElementById('d-ai') ? document.getElementById('d-ai').value === '1' : false;
       const obj = { name: name, cat: cat, catn: cn[cat], time: time, ai: ai, ing: ing, sea: sea };
-      // 读取上传的菜品图（base64）
+      // 优先使用 AI 生成的图片，其次本地上传
+      const aiImg = document.getElementById('d-ai-img') ? document.getElementById('d-ai-img').value : '';
       const imgInput = document.getElementById('d-img');
-      if (imgInput && imgInput.files && imgInput.files[0]) {
+      if (aiImg) {
+        obj.img = aiImg;
+        if (dish) obj.id = dish.id;
+        await DB.put('dishes', obj);
+        UI.closeModal();
+        UI.toast('已保存菜谱');
+        App.render();
+      } else if (imgInput && imgInput.files && imgInput.files[0]) {
         const reader = new FileReader();
         reader.onload = async function(e) {
           obj.img = e.target.result;
@@ -344,9 +356,32 @@ const MealPage = (function() {
           const reader = new FileReader();
           reader.onload = function(e) {
             document.getElementById('d-img-preview').innerHTML = '<img src="' + e.target.result + '" style="width:100%;height:100%;object-fit:cover;">';
+            document.getElementById('d-ai-img').value = '';
           };
           reader.readAsDataURL(this.files[0]);
         }
+      });
+    }
+    // AI 生成菜品图
+    const aiGenBtn = document.getElementById('d-ai-gen');
+    if (aiGenBtn) {
+      aiGenBtn.addEventListener('click', async function() {
+        const name = document.getElementById('d-name').value.trim();
+        if (!name) { UI.toast('请先填写菜名'); return; }
+        const conf = await AI.getConf();
+        if (!conf.enabled) { UI.toast('请先在设置页配置 AI 接口'); return; }
+        aiGenBtn.textContent = '生成中…';
+        aiGenBtn.disabled = true;
+        const r = await AI.genDishImage(name);
+        if (r.ok && r.url) {
+          document.getElementById('d-img-preview').innerHTML = '<img src="' + r.url + '" style="width:100%;height:100%;object-fit:cover;">';
+          document.getElementById('d-ai-img').value = r.url;
+          UI.toast('AI 图片已生成');
+        } else {
+          UI.toast('生成失败：' + (r.error || '未知错误'));
+        }
+        aiGenBtn.textContent = '✨ AI 生成';
+        aiGenBtn.disabled = false;
       });
     }
   }

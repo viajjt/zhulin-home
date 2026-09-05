@@ -439,10 +439,14 @@ const TripPage = (function() {
       });
       html += '<div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;">' +
         '<button class="btn sm" data-line-add="1">+ 添加一天</button>' +
+        '<button class="btn sm ghost" data-ai-trip="' + tp.id + '" style="background:var(--pur-bg);color:var(--pur);">✨ AI 生成行程</button>' +
       '</div>';
     } else {
       html += '<div class="empty"><span class="e">✨</span>还没有行程内容</div>';
-      html += '<div style="margin-top:8px;"><button class="btn sm" data-line-add="1">+ 添加第一天</button></div>';
+      html += '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<button class="btn sm" data-line-add="1">+ 添加第一天</button>' +
+        '<button class="btn sm ghost" data-ai-trip="' + tp.id + '" style="background:var(--pur-bg);color:var(--pur);">✨ AI 生成行程</button>' +
+      '</div>';
     }
     if (tp.tips) html += '<div style="font-size:12.5px;color:var(--sub);background:var(--green-bg);border-radius:10px;padding:10px 12px;margin-top:10px;">💡 ' + UI.esc(tp.tips) + '</div>';
     html += '<div class="foot"><button class="btn" data-x="1">关闭</button></div>';
@@ -509,6 +513,31 @@ const TripPage = (function() {
       await DB.put('trips', cur);
       viewTrip(id);
     });
+    // AI 生成行程
+    const aiBtn = modal.querySelector('[data-ai-trip]');
+    if (aiBtn) {
+      aiBtn.addEventListener('click', async function() {
+        const conf = await AI.getConf();
+        if (!conf.enabled) { UI.toast('请先在设置页配置 AI 接口'); return; }
+        aiBtn.textContent = '生成中…';
+        aiBtn.disabled = true;
+        const cur = await DB.get('trips', id);
+        ensureDestinations(cur);
+        const dest = cur.destinations.map(function(d){return d.name;}).join('→');
+        const r = await AI.genTrip(dest, cur.days || 1, cur.people || 2, cur.members, cur.transport);
+        if (r.ok && r.lines && r.lines.length) {
+          cur.lines = r.lines;
+          cur.days = r.lines.length;
+          await DB.put('trips', cur);
+          UI.toast('AI 行程已生成，可手动调整');
+          viewTrip(id);
+        } else {
+          UI.toast('生成失败：' + (r.error || '未知错误'));
+          aiBtn.textContent = '✨ AI 生成行程';
+          aiBtn.disabled = false;
+        }
+      });
+    }
   }
 
   // 编辑某天行程

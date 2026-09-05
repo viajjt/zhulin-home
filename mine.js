@@ -160,7 +160,18 @@ const MinePage = (function() {
       '<div class="kv"><span class="k">同步设置</span><button class="btn sm ghost" data-sync="1">配置</button></div>' +
     '</div>';
 
-    html += '<div style="margin-top:16px;font-size:12px;color:var(--sub);text-align:center;">家庭管理系统 v1.0 · 本地优先 + Supabase 云同步</div>';
+    // AI 助手配置
+    const aiConf = await (typeof AI !== 'undefined' && AI.getConf ? AI.getConf() : Promise.resolve({}));
+    html += '<div class="section-title">🤖 AI 助手（三期）</div>';
+    html += '<div class="card">' +
+      '<div class="kv"><span class="k">AI 服务</span><span class="v"><span class="pill ' + (aiConf.enabled ? 'grn' : 'gray') + '">' + (aiConf.enabled ? '已配置' : '未配置（本地规则版）') + '</span></span></div>' +
+      (aiConf.endpoint ? '<div class="kv"><span class="k">接口地址</span><span class="v" style="font-size:12px;">' + UI.esc(aiConf.endpoint.substring(0,40)) + '…</span></div>' : '') +
+      (aiConf.model ? '<div class="kv"><span class="k">模型</span><span class="v" style="font-size:12px;">' + UI.esc(aiConf.model) + '</span></div>' : '') +
+      '<div class="kv"><span class="k">AI 设置</span><button class="btn sm ghost" data-ai-conf="1">配置</button></div>' +
+      '<div style="font-size:11px;color:var(--sub);margin-top:6px;">配置后语音助手、旅行行程生成、菜品图生成将使用 AI 能力。支持 OpenAI 兼容接口。</div>' +
+    '</div>';
+
+    html += '<div style="margin-top:16px;font-size:12px;color:var(--sub);text-align:center;">朱林之家 v2.1 · 本地优先 + Supabase 云同步 + AI 增强</div>';
     return html;
   }
 
@@ -303,6 +314,30 @@ const MinePage = (function() {
     App.render();
   }
 
+  // AI 配置
+  async function openAiConf() {
+    const conf = await (typeof AI !== 'undefined' && AI.getConf ? AI.getConf() : Promise.resolve({}));
+    UI.openModal(
+      '<h3>🤖 AI 助手配置</h3>' +
+      '<p style="font-size:13px;color:var(--sub);margin-bottom:12px;">填写 OpenAI 兼容接口的地址和 Key，即可启用 AI 智能对话、行程生成、菜品图生成。留空则使用本地规则版。</p>' +
+      '<div class="field"><label>API Endpoint（接口地址）</label><input id="ai-endpoint" value="' + UI.esc(conf.endpoint || '') + '" placeholder="https://api.openai.com/v1"></div>' +
+      '<div class="field"><label>API Key</label><input id="ai-key" type="password" value="' + UI.esc(conf.key || '') + '" placeholder="sk-..."></div>' +
+      '<div class="field"><label>模型名称</label><input id="ai-model" value="' + UI.esc(conf.model || 'gpt-4o-mini') + '" placeholder="gpt-4o-mini / doubao-1-5 等"></div>' +
+      '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-ai-save="1">保存</button></div>'
+    );
+    const modal = document.querySelector('.modal');
+    modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
+    modal.querySelector('[data-ai-save]').addEventListener('click', async function() {
+      const endpoint = document.getElementById('ai-endpoint').value.trim();
+      const key = document.getElementById('ai-key').value.trim();
+      const model = document.getElementById('ai-model').value.trim() || 'gpt-4o-mini';
+      await DB.setSetting('ai_conf', { endpoint: endpoint, key: key, model: model });
+      UI.closeModal();
+      UI.toast(endpoint && key ? 'AI 配置已保存' : '已切换为本地规则版');
+      App.render();
+    });
+  }
+
   async function onAction(e) {
     const t = e.target;
     const nm = t.getAttribute('data-new-m');
@@ -358,6 +393,7 @@ const MinePage = (function() {
         App.render();
       });
     }
+    else if (t.getAttribute('data-ai-conf')) openAiConf();
     else if (sy) openSyncForm();
     else if (ds) doSync();
     else if (rl) openRoleManager();
