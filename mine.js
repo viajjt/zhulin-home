@@ -59,10 +59,20 @@ const MinePage = (function() {
     });
   }
 
+  // 格式化上次同步时间
+  function fmtSyncTime(last) {
+    if (!last || !last.at) return '—';
+    const diff = Date.now() - last.at;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+    const d = new Date(last.at);
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
   async function body() {
     const members = await DB.getAll('members');
     const me = await DB.getSetting('me');
-    const sync = await DB.getSetting('sync_conf');
+    const syncStatus = await DB.getSyncStatus();
     const city = (await DB.getSetting('city')) || Weather.DEFAULT_CITY;
 
     let html = '';
@@ -120,12 +130,14 @@ const MinePage = (function() {
     // 数据与同步
     html += '<div class="section-title">💾 数据与同步</div>';
     html += '<div class="card">' +
-      '<div class="kv"><span class="k">多设备同步</span><span class="v"><span class="pill ' + (sync ? 'grn' : 'gray') + '">' + (sync ? '已配置 Supabase' : '本地模式') + '</span></span></div>' +
+      '<div class="kv"><span class="k">多设备同步</span><span class="v"><span class="pill ' + (syncStatus.configured ? 'grn' : 'gray') + '">' + (syncStatus.configured ? '已连接 Supabase' : '本地模式') + '</span></span></div>' +
+      (syncStatus.configured ? '<div class="kv"><span class="k">上次同步</span><span class="v" style="font-size:12px;">' + fmtSyncTime(syncStatus.last) + '</span></div>' : '') +
       '<div class="kv"><span class="k">导出数据（JSON）</span><button class="btn sm ghost" data-export="1">导出</button></div>' +
+      (syncStatus.configured ? '<div class="kv"><span class="k">立即同步</span><button class="btn sm" data-dosync="1">同步</button></div>' : '') +
       '<div class="kv"><span class="k">同步设置</span><button class="btn sm ghost" data-sync="1">配置</button></div>' +
     '</div>';
 
-    html += '<div style="margin-top:16px;font-size:12px;color:var(--sub);text-align:center;">家庭管理系统 v0.5 定稿 · 本地优先 + 可选 Supabase 云同步</div>';
+    html += '<div style="margin-top:16px;font-size:12px;color:var(--sub);text-align:center;">家庭管理系统 v1.0 · 本地优先 + Supabase 云同步</div>';
     return html;
   }
 
@@ -190,27 +202,47 @@ const MinePage = (function() {
   }
 
   function openSyncForm() {
-    UI.openModal(
-      '<h3>🔗 Supabase 云同步设置</h3>' +
-      '<p style="font-size:13px;color:var(--sub);margin-bottom:12px;">填写你在 Supabase 创建的项目地址和 anon key 即可开启多设备云同步（免费档）。留空则为纯本地模式。</p>' +
-      '<div class="field"><label>Supabase URL</label><input id="sy-url" placeholder="https://xxxx.supabase.co"></div>' +
-      '<div class="field"><label>Anon Key</label><input id="sy-key" placeholder="eyJhbGci..."></div>' +
-      '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save="1">保存</button></div>'
-    );
-    const modal = document.querySelector('.modal');
-    modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
-    modal.querySelector('[data-save]').addEventListener('click', async function() {
-      const url = document.getElementById('sy-url').value.trim();
-      const key = document.getElementById('sy-key').value.trim();
-      await DB.setSetting('sync_conf', { url: url, key: key });
-      UI.closeModal();
-      if (url && key) {
-        UI.toast('已保存同步配置（正式版接入）');
-      } else {
-        UI.toast('已切换为本地模式');
-      }
-      App.render();
+    DB.getSyncConf().then(function(conf) {
+      UI.openModal(
+        '<h3>🔗 Supabase 云同步设置</h3>' +
+        '<p style="font-size:13px;color:var(--sub);margin-bottom:12px;">填写你在 Supabase 创建的项目地址和 anon/publishable key 即可开启多设备云同步（免费档）。留空保存则切回纯本地模式。</p>' +
+        '<div class="field"><label>Supabase URL</label><input id="sy-url" value="' + UI.esc(conf ? conf.url : '') + '" placeholder="https://xxxx.supabase.co"></div>' +
+        '<div class="field"><label>Anon / Publishable Key</label><input id="sy-key" placeholder="eyJhbGci... 或 sb_publishable_..."></div>' +
+        '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save="1">保存并同步</button></div>'
+      );
+      const modal = document.querySelector('.modal');
+      modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
+      modal.querySelector('[data-save]').addEventListener('click', async function() {
+        const url = document.getElementById('sy-url').value.trim();
+        const key = document.getElementById('sy-key').value.trim();
+        await DB.setSetting('sync_conf', { url: url, key: key });
+        UI.closeModal();
+        if (url && key) {
+          UI.toast('已保存，正在同步…');
+          const r = await DB.syncNow();
+          if (r.ok) {
+            UI.toast('同步完成：上传 ' + r.pushed + '，下载 ' + r.pulled + ' 条');
+          } else {
+            UI.toast('配置已保存，但同步失败，请检查 URL / Key 或网络');
+          }
+        } else {
+          UI.toast('已切换为本地模式');
+        }
+        App.render();
+      });
     });
+  }
+
+  // 立即同步
+  async function doSync() {
+    UI.toast('正在同步…');
+    const r = await DB.syncNow();
+    if (r.ok) {
+      UI.toast('同步完成：上传 ' + r.pushed + '，下载 ' + r.pulled + ' 条');
+    } else {
+      UI.toast('同步失败：' + (r.errors || []).join('；'));
+    }
+    App.render();
   }
 
   async function onAction(e) {
@@ -220,6 +252,7 @@ const MinePage = (function() {
     const dm = t.getAttribute('data-del-m');
     const ex = t.getAttribute('data-export');
     const sy = t.getAttribute('data-sync');
+    const ds = t.getAttribute('data-dosync');
     const rl = t.getAttribute('data-roles');
     if (nm) openMemberForm(null);
     else if (em) openMemberForm(await DB.get('members', +em));
@@ -239,6 +272,7 @@ const MinePage = (function() {
     }
     else if (ex) exportData();
     else if (sy) openSyncForm();
+    else if (ds) doSync();
     else if (rl) openRoleManager();
   }
 
