@@ -1,23 +1,27 @@
 /* 家庭管理系统 - 数据存储层
    本地优先：IndexedDB 存储所有数据，离线可用。
    云同步：设置页填入 Supabase Project URL + anon/publishable key 后，
-           DB.syncNow() 会对 12 张业务表做双向同步（按 uid 全局唯一合并，updated 新者胜）。
+           DB.syncNow() 会对 14 张业务表做双向同步（按 uid 全局唯一合并，updated 新者胜）。
+           DB.startAutoSync() 启动「打开即同步 + 每 30 秒轮询 + 切回页面立即同步」。
    表约定：families, members, tasks, inventory_items, trips, packing_items,
            anniversaries, milestones, dishes, meal_plans, meal_templates,
-           shopping_items（点餐并入的采购清单）, settings（设备级，不同步）
+           shopping_items（点餐并入的采购清单）, budgets（年度预算）,
+           transactions（收支流水）, settings（设备级，不同步）
 */
 const DB = (function() {
   const DB_NAME = 'family-hub';
-  const DB_VER = 3;
+  const DB_VER = 5;
   const STORES = [
     'families','members','tasks','inventory_items',
     'trips','packing_items','anniversaries','milestones',
-    'dishes','meal_plans','meal_templates','settings','shopping_items'
+    'dishes','meal_plans','meal_templates','settings','shopping_items',
+    'budgets','transactions','messages'
   ];
   // 需要云端同步的业务表（settings 为设备级偏好，不同步）
   const SYNC_TABLES = [
     'families','members','tasks','inventory_items','trips','packing_items',
-    'anniversaries','milestones','dishes','meal_plans','meal_templates','shopping_items'
+    'anniversaries','milestones','dishes','meal_plans','meal_templates','shopping_items',
+    'budgets','transactions','messages'
   ];
   let db = null;
 
@@ -223,10 +227,66 @@ const DB = (function() {
     return { pushed: pushed, pulled: pulled };
   }
 
+  // ===== 自动同步：打开即同步 + 每 30 秒轮询 + 切回页面立即同步 =====
+  let autoTimer = null;
+  const AUTO_INTERVAL = 30000; // 30 秒
+
+  async function startAutoSync() {
+    const conf = await getSyncConf();
+    if (!conf || !conf.url || !conf.key) return;
+    // 打开立即同步一次
+    syncNow().catch(function() {});
+    if (autoTimer) clearInterval(autoTimer);
+    autoTimer = setInterval(function() {
+      // 页面隐藏时暂停，节省流量；可见时才轮询
+      if (document.visibilityState === 'visible') {
+        syncNow().catch(function() {});
+      }
+    }, AUTO_INTERVAL);
+  }
+
+  function stopAutoSync() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  }
+
+  // 切回页面时立即同步一次（家人在别的设备刚改完，切回来马上看到）
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') {
+        getSyncConf().then(function(conf) {
+          if (conf && conf.url && conf.key) syncNow().catch(function() {});
+        }).catch(function() {});
+      }
+    });
+  }
+
+  // ===== 家庭名称（存 families 表，云端同步，全家一致） =====
+  async function getFamilyName() {
+    await open();
+    const list = await getAll('families');
+    if (list.length) return list[0].name || '朱林之家';
+    await add('families', { name: '朱林之家' });
+    return '朱林之家';
+  }
+  async function setFamilyName(name) {
+    await open();
+    const list = await getAll('families');
+    if (list.length) {
+      const f = list[0];
+      f.name = name;
+      await put('families', f);
+    } else {
+      await add('families', { name: name });
+    }
+    return name;
+  }
+
   return {
     add: add, put: put, get: get, getAll: getAll, del: del, clear: clear,
     setSetting: setSetting, getSetting: getSetting,
     syncNow: syncNow, getSyncConf: getSyncConf, getSyncStatus: getSyncStatus,
+    startAutoSync: startAutoSync, stopAutoSync: stopAutoSync,
+    getFamilyName: getFamilyName, setFamilyName: setFamilyName,
     STORES: STORES, SYNC_TABLES: SYNC_TABLES
   };
 })();

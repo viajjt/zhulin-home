@@ -27,6 +27,7 @@ const HomePage = (function() {
     const trips = await DB.getAll('trips');
     const meals = await DB.getAll('meal_plans');
     const members = await DB.getAll('members');
+    const messages = await DB.getAll('messages');
     const memberMap = {};
     members.forEach(function(m) { memberMap[m.id] = m; });
     const today = UI.todayStr();
@@ -127,6 +128,34 @@ const HomePage = (function() {
       html += '<div class="card"><div class="empty"><span class="e">🥛</span>没有临期物品</div></div>';
     }
 
+    // ===== 家庭留言板 =====
+    const sortedMsgs = messages.slice().sort(function(a, b) { return (b.created || 0) - (a.created || 0); }).slice(0, 10);
+    html += '<div class="section-title">💬 家庭留言板</div>';
+    html += '<div class="card">';
+    if (sortedMsgs.length) {
+      sortedMsgs.forEach(function(msg) {
+        const sender = msg.memberName || (msg.member && memberMap[msg.member] ? memberMap[msg.member].name : '家人');
+        const time = msg.created ? new Date(msg.created).toLocaleString('zh-CN', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+        html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">' +
+            '<span style="font-weight:600;font-size:13px;">' + UI.esc(sender) + '</span>' +
+            '<span style="font-size:11px;color:var(--sub);">' + time + ' <button class="btn sm ghost" data-del-msg="' + msg.id + '" style="padding:0 4px;font-size:11px;">删</button></span>' +
+          '</div>' +
+          '<div style="font-size:13.5px;color:#333;line-height:1.5;">' + UI.esc(msg.text || '') + '</div>' +
+        '</div>';
+      });
+    } else {
+      html += '<div class="empty" style="padding:16px 0;"><span class="e">💬</span>还没有留言，写一句给家人吧</div>';
+    }
+    html += '<div style="display:flex;gap:8px;margin-top:10px;">' +
+      '<input id="msg-input" class="input" placeholder="写点什么…（如：晚上不回来吃饭）" style="flex:1;">' +
+      '<select id="msg-sender" class="input" style="width:90px;">' +
+        '<option value="">家人</option>' +
+        members.map(function(m) { return '<option value="' + m.id + '">' + UI.esc(m.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<button class="btn" data-send-msg="1">发送</button>' +
+    '</div></div>';
+
     return html;
   }
 
@@ -151,7 +180,32 @@ const HomePage = (function() {
   }
 
   function bind(root) {
-    void root;
+    // 留言板事件
+    root.addEventListener('click', async function(e) {
+      const t = e.target;
+      if (t.getAttribute('data-send-msg')) {
+        const input = document.getElementById('msg-input');
+        const text = input.value.trim();
+        if (!text) { UI.toast('写点什么吧'); return; }
+        const member = document.getElementById('msg-sender').value;
+        const memberName = member ? (await DB.get('members', +member) || {}).name : '';
+        await DB.add('messages', { text: text, member: member, memberName: memberName });
+        input.value = '';
+        UI.toast('已发送');
+        App.render();
+      } else if (t.getAttribute('data-del-msg')) {
+        if (confirm('删除这条留言？')) {
+          await DB.del('messages', +t.getAttribute('data-del-msg'));
+          App.render();
+        }
+      }
+    });
+    // 回车发送
+    root.addEventListener('keydown', function(e) {
+      if (e.target.id === 'msg-input' && e.key === 'Enter') {
+        document.querySelector('[data-send-msg]').click();
+      }
+    });
     // 清除旧时钟，避免重复
     if (timer) { clearInterval(timer); timer = null; }
     function tick() {

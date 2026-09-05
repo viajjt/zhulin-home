@@ -1,25 +1,27 @@
 /* 家庭管理系统 - Service Worker
    缓存应用壳资源，支持离线使用 */
-const CACHE = 'family-hub-v5';
+const CACHE = 'family-hub-v6';
 const CORE = [
   './',
-  './index.html?v=10',
-  './style.css?v=10',
+  './index.html?v=12',
+  './style.css?v=12',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
-  './app.js?v=10',
-  './db.js?v=10',
-  './lunar.js?v=10',
-  './weather.js?v=10',
-  './ui.js?v=10',
-  './home.js?v=10',
-  './cal.js?v=10',
-  './stock.js?v=10',
-  './trip.js?v=10',
-  './memo.js?v=10',
-  './meal.js?v=10',
-  './mine.js?v=10'
+  './app.js?v=12',
+  './db.js?v=12',
+  './ai.js?v=12',
+  './lunar.js?v=12',
+  './weather.js?v=12',
+  './ui.js?v=12',
+  './home.js?v=12',
+  './cal.js?v=12',
+  './stock.js?v=12',
+  './trip.js?v=12',
+  './memo.js?v=12',
+  './meal.js?v=12',
+  './finance.js?v=12',
+  './mine.js?v=12'
 ];
 
 self.addEventListener('install', function(e) {

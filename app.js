@@ -7,6 +7,7 @@ const App = (function() {
     { id: 'stock', label: '库存',   ic: '📦', page: StockPage },
     { id: 'memo',  label: '纪念日', ic: '🎉', page: MemoPage },
     { id: 'meal',  label: '点餐',   ic: '🍽️', page: MealPage },
+    { id: 'finance', label: '财务', ic: '💰', page: FinancePage },
     { id: 'mine',  label: '设置',   ic: '⚙️', page: MinePage }
   ];
   let current = 'home';
@@ -89,10 +90,61 @@ const App = (function() {
     if (hash && PAGES.some(function(p) { return p.id === hash; })) current = hash;
   }
 
+  // ===== 本地提醒（页面打开时有效） =====
+  const notified = new Set();
+  function startNotifier() {
+    async function check() {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      if (document.visibilityState !== 'visible') return;
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        const tasks = await DB.getAll('tasks');
+        tasks.forEach(function(t) {
+          if (!t.done && t.date === today && !notified.has('task-' + t.id)) {
+            notified.add('task-' + t.id);
+            new Notification('📋 今日待办', { body: t.title || '有任务待完成', icon: '' });
+          }
+        });
+        const anns = await DB.getAll('anniversaries');
+        anns.forEach(function(a) {
+          const md = (a.date || '').slice(5);
+          const todayMd = today.slice(5);
+          if (md === todayMd && !notified.has('ann-' + a.id)) {
+            notified.add('ann-' + a.id);
+            new Notification('🎉 纪念日', { body: (a.title || a.name || '今天是个重要日子') + '（每年）', icon: '' });
+          }
+        });
+      } catch(e) {}
+    }
+    check();
+    setInterval(check, 60000);
+  }
+
   function init() {
     route();
     buildShell();
     render();
+    // 启动自动云同步：打开即同步 + 每 30 秒轮询 + 切回页面立即同步
+    if (typeof DB !== 'undefined' && DB.startAutoSync) DB.startAutoSync();
+    // 动态加载家庭名称（云端同步，全家一致）
+    if (typeof DB !== 'undefined' && DB.getFamilyName) {
+      DB.getFamilyName().then(function(nm) {
+        var el = document.querySelector('.brand .nm');
+        if (el) el.textContent = nm;
+        document.title = nm;
+      }).catch(function() {});
+    }
+    // 财务功能开关：控制导航入口显示
+    if (typeof DB !== 'undefined' && DB.getSetting) {
+      DB.getSetting('finance_enabled').then(function(on) {
+        document.body.classList.toggle('finance-on', !!on);
+      }).catch(function() {});
+    }
+    // 本地提醒：请求通知权限 + 定时检查任务/纪念日
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(function() {});
+    }
+    startNotifier();
     // 注册 Service Worker（PWA 离线）
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(function() { /* 忽略：非 http 环境或已失败 */ });
