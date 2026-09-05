@@ -1,27 +1,27 @@
-/* 家庭管理系统 - Service Worker
-   缓存应用壳资源，支持离线使用 */
-const CACHE = 'family-hub-v6';
+﻿/* 瀹跺涵绠＄悊绯荤粺 - Service Worker
+   缂撳瓨搴旂敤澹宠祫婧愶紝鏀寔绂荤嚎浣跨敤 */
+const CACHE = 'family-hub-v7';
 const CORE = [
   './',
-  './index.html?v=12',
-  './style.css?v=12',
+  './index.html?v=13',
+  './style.css?v=13',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
-  './app.js?v=12',
-  './db.js?v=12',
-  './ai.js?v=12',
-  './lunar.js?v=12',
-  './weather.js?v=12',
-  './ui.js?v=12',
-  './home.js?v=12',
-  './cal.js?v=12',
-  './stock.js?v=12',
-  './trip.js?v=12',
-  './memo.js?v=12',
-  './meal.js?v=12',
-  './finance.js?v=12',
-  './mine.js?v=12'
+  './app.js?v=13',
+  './db.js?v=13',
+  './ai.js?v=13',
+  './lunar.js?v=13',
+  './weather.js?v=13',
+  './ui.js?v=13',
+  './home.js?v=13',
+  './cal.js?v=13',
+  './stock.js?v=13',
+  './trip.js?v=13',
+  './memo.js?v=13',
+  './meal.js?v=13',
+  './finance.js?v=13',
+  './mine.js?v=13'
 ];
 
 self.addEventListener('install', function(e) {
@@ -43,11 +43,11 @@ self.addEventListener('activate', function(e) {
 });
 
 self.addEventListener('fetch', function(e) {
-  // 只处理同源 GET 请求
+  // 鍙鐞嗗悓婧?GET 璇锋眰
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
-  // 导航请求：网络优先，失败回退缓存
+  // 瀵艰埅璇锋眰锛氱綉缁滀紭鍏堬紝澶辫触鍥為€€缂撳瓨
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request).then(function(res) {
@@ -60,7 +60,7 @@ self.addEventListener('fetch', function(e) {
     );
     return;
   }
-  // 静态资源：网络优先（确保拿到最新代码），离线回退缓存
+  // 闈欐€佽祫婧愶細缃戠粶浼樺厛锛堢‘淇濇嬁鍒版渶鏂颁唬鐮侊級锛岀绾垮洖閫€缂撳瓨
   e.respondWith(
     fetch(e.request).then(function(res) {
       if (res && res.status === 200) {
@@ -73,3 +73,4 @@ self.addEventListener('fetch', function(e) {
     })
   );
 });
+

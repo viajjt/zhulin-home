@@ -76,6 +76,32 @@ const DB = (function() {
     });
   }
 
+  // 同步专用：写入时保留原始 updated，不刷新（避免同步乒乓循环）
+  async function putRaw(store, obj) {
+    await open();
+    const o = Object.assign({}, obj);
+    if (!o.uid) o.uid = uid();
+    if (!o.updated) o.updated = Date.now();
+    return new Promise(function(res, rej) {
+      const r = tx(store, 'readwrite').put(o);
+      r.onsuccess = function() { res(r.result); };
+      r.onerror = function() { rej(r.error); };
+    });
+  }
+
+  // 同步专用：新增时保留原始 uid 和 updated，不生成新 uid、不刷新时间
+  async function addRaw(store, obj) {
+    await open();
+    const o = Object.assign({}, obj);
+    if (!o.uid) throw new Error('addRaw requires uid');
+    if (!o.updated) o.updated = Date.now();
+    return new Promise(function(res, rej) {
+      const r = tx(store, 'readwrite').add(o);
+      r.onsuccess = function() { res(r.result); };
+      r.onerror = function() { rej(r.error); };
+    });
+  }
+
   async function getAll(store) {
     await open();
     return new Promise(function(res, rej) {
@@ -191,13 +217,14 @@ const DB = (function() {
       if (!local || rUpdated > lUpdated) {
         const data = remote.data || remote;
         if (local) {
-          // 保留本地 id，合并内容
-          await put(table, Object.assign({}, data, { id: local.id }));
+          // 保留本地 id，合并内容，保留云端 updated（不刷新，避免乒乓循环）
+          await putRaw(table, Object.assign({}, data, { id: local.id, updated: rUpdated }));
         } else {
-          // 新行：去掉云端 id，让本地生成
+          // 新行：去掉云端 id，保留 uid 和 updated，让本地生成 id
           const d = Object.assign({}, data);
           delete d.id;
-          await add(table, d);
+          d.updated = rUpdated;
+          await addRaw(table, d);
         }
         pulled++;
       }
@@ -231,9 +258,28 @@ const DB = (function() {
   let autoTimer = null;
   const AUTO_INTERVAL = 30000; // 30 秒
 
+  // 启动时补全缺失 uid（旧数据可能没有 uid，会导致同步重复）
+  async function ensureUids() {
+    await open();
+    for (const table of SYNC_TABLES) {
+      try {
+        const rows = await getAll(table);
+        for (const r of rows) {
+          if (!r.uid) {
+            r.uid = uid();
+            r.updated = r.updated || Date.now();
+            await putRaw(table, r);
+          }
+        }
+      } catch(e) {}
+    }
+  }
+
   async function startAutoSync() {
     const conf = await getSyncConf();
     if (!conf || !conf.url || !conf.key) return;
+    // 先补全 uid，再同步
+    await ensureUids().catch(function() {});
     // 打开立即同步一次
     syncNow().catch(function() {});
     if (autoTimer) clearInterval(autoTimer);
@@ -282,7 +328,8 @@ const DB = (function() {
   }
 
   return {
-    add: add, put: put, get: get, getAll: getAll, del: del, clear: clear,
+    add: add, put: put, putRaw: putRaw, addRaw: addRaw,
+    get: get, getAll: getAll, del: del, clear: clear,
     setSetting: setSetting, getSetting: getSetting,
     syncNow: syncNow, getSyncConf: getSyncConf, getSyncStatus: getSyncStatus,
     startAutoSync: startAutoSync, stopAutoSync: stopAutoSync,

@@ -93,7 +93,10 @@ const HomePage = (function() {
       html += '<div class="card">';
       todayTasks.forEach(function(t) {
         const who = t.assignee && memberMap[t.assignee] ? memberMap[t.assignee] : null;
-        html += '<div class="kv"><span class="k">' + UI.esc(t.title) + '</span>' +
+        const itemsHtml = (t.items && t.items.length)
+          ? '<div style="font-size:12px;color:var(--sub);margin-top:3px;line-height:1.5;">🛒 ' + UI.esc(t.items.join('、')) + '</div>'
+          : '';
+        html += '<div class="kv" style="align-items:flex-start;"><span class="k" style="flex:1;">' + UI.esc(t.title) + itemsHtml + '</span>' +
           '<span class="v">' + (who ? '<span style="color:var(--sub);font-size:12px;">' + UI.esc(who.name) + '</span>' : '') + '<span class="pill org">今天</span></span></div>';
       });
       html += '</div>';

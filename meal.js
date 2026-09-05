@@ -249,9 +249,16 @@ const MealPage = (function() {
           if (time) {
             const dueTime = subMinutes(time, 240); // 4小时 = 240分钟
             const cookName = cook ? (ms.find(function(m){return m.id==cook;})||{}).name || '' : '';
+            // 合并相同食材，生成具体采购明细
+            const merged = mergeIngredients(selectedDishes);
+            const ingList = merged.ing.map(function(item) {
+              return item.name + ' ' + item.qty.join(' + ');
+            });
+            const ingText = ingList.join('、');
             await DB.add('tasks', {
-              title: '🛒 采购：' + dishNames,
-              desc: '为 ' + date + ' ' + (mealTypeName[meal_type]||'') + ' 采购食材（开饭 ' + time + '）',
+              title: '🛒 采购食材（' + ingList.length + '项）：' + dishNames,
+              desc: '为 ' + date + ' ' + (mealTypeName[meal_type]||'') + ' 采购（开饭 ' + time + '）\n食材：' + ingText,
+              items: ingList,
               date: date,
               time: dueTime,
               assignee: cook,
