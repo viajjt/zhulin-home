@@ -1,6 +1,6 @@
-/* 朱林之家 - Service Worker v17
-   缓存应用壳资源，支持离线使用 */
-const CACHE = 'family-hub-v11';
+﻿/* 鏈辨灄涔嬪 - Service Worker v17
+   缂撳瓨搴旂敤澹宠祫婧愶紝鏀寔绂荤嚎浣跨敤 */
+const CACHE = 'family-hub-v13';
 const CORE = [
   './',
   './index.html',
@@ -46,7 +46,7 @@ self.addEventListener('fetch', function(e) {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
-  // 导航请求：网络优先，失败回退缓存
+  // 瀵艰埅璇锋眰锛氱綉缁滀紭鍏堬紝澶辫触鍥為€€缂撳瓨
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request).then(function(res) {
@@ -59,7 +59,7 @@ self.addEventListener('fetch', function(e) {
     );
     return;
   }
-  // 静态资源：网络优先（确保拿到最新代码），离线回退缓存
+  // 闈欐€佽祫婧愶細缃戠粶浼樺厛锛堢‘淇濇嬁鍒版渶鏂颁唬鐮侊級锛岀绾垮洖閫€缂撳瓨
   e.respondWith(
     fetch(e.request).then(function(res) {
       if (res && res.status === 200) {
@@ -72,3 +72,5 @@ self.addEventListener('fetch', function(e) {
     })
   );
 });
+
+

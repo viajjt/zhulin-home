@@ -1,421 +1,590 @@
-/* 朱林之家 - 页面：旅行规划 v4（分段交通时间轴）
-   多目的地分段行程 + 时间轴 + 地图 + 预算 + 打卡 + 智能清单 + AI生成 */
+/* 朱林之家 - 旅行模块 v2
+   多目的地分段行程 + 时间轴可视化 + 智能打包清单 + 沿途天气 + 预算 + 打卡 + AI */
 const TripPage = (function() {
   const TRANSPORT_ICONS = { plane: '✈️', train: '🚄', car: '🚗', bus: '🚌', ship: '🚢', other: '🚶' };
   const TRANSPORT_NAMES = { plane: '飞机', train: '高铁/火车', car: '自驾', bus: '大巴', ship: '轮船', other: '其他' };
+  const PACK_CATS = ['证件', '衣物', '洗漱', '药品', '电子', '其他'];
 
-  // 确保 trip 有 segments 字段（兼容旧数据）
+  function fmtDate(d) {
+    if (!d) return '';
+    return d.length > 10 ? d.slice(0, 16).replace('T', ' ') : d;
+  }
+  function fmtShort(d) {
+    if (!d) return '';
+    return d.length >= 10 ? d.slice(5, 10) : d;
+  }
+
+  // 确保有 segments（旧数据迁移）
   function ensureSegments(trip) {
     if (trip.segments && trip.segments.length) return trip;
-    // 旧数据：从 destinations 转换
     trip.segments = [];
     if (trip.destinations && trip.destinations.length) {
       trip.destinations.forEach(function(d, i) {
-        if (i === 0) {
-          trip.segments.push({ kind: 'transport', from: trip.origin || '家', to: d.name, transport: 'car', depart: trip.start_date || '', arrive: '', note: '' });
-        } else {
-          trip.segments.push({ kind: 'transport', from: trip.destinations[i-1].name, to: d.name, transport: 'car', depart: '', arrive: '', note: '' });
-        }
-        trip.segments.push({ kind: 'stay', city: d.name, start: d.arrive || trip.start_date || '', end: d.leave || '', note: d.note || '' });
+        if (i === 0) trip.segments.push({ kind: 'transport', from: trip.origin || '家', to: d.name, transport: 'car', depart: '', arrive: '', note: '' });
+        else trip.segments.push({ kind: 'transport', from: trip.destinations[i-1].name, to: d.name, transport: 'car', depart: '', arrive: '', note: '' });
+        trip.segments.push({ kind: 'stay', city: d.name, start: d.arrive || '', end: d.leave || '', note: d.note || '' });
       });
-      // 返程
       const last = trip.destinations[trip.destinations.length - 1];
-      trip.segments.push({ kind: 'transport', from: last.name, to: trip.origin || '家', transport: 'car', depart: trip.end_date || '', arrive: '', note: '返程' });
+      trip.segments.push({ kind: 'transport', from: last.name, to: trip.origin || '家', transport: 'car', depart: '', arrive: '', note: '返程' });
     }
     return trip;
   }
 
-  function fmtDate(d) {
-    if (!d) return '';
-    return d.length > 10 ? d.slice(0, 16) : d;
+  // 获取行程中所有城市
+  function getCities(trip) {
+    const cities = [];
+    (trip.segments || []).forEach(function(s) {
+      if (s.kind === 'transport') {
+        if (s.from && cities.indexOf(s.from) < 0) cities.push(s.from);
+        if (s.to && cities.indexOf(s.to) < 0) cities.push(s.to);
+      } else if (s.kind === 'stay') {
+        if (s.city && cities.indexOf(s.city) < 0) cities.push(s.city);
+      }
+    });
+    return cities;
   }
 
-  // ===== 行程时间轴渲染 =====
-  function timelineHtml(trip) {
-    if (!trip.segments || !trip.segments.length) {
-      return '<div class="card"><div class="empty"><span class="e">🗺️</span>还没有行程，点下面按钮添加第一段</div></div>';
+  // 计算旅行天数
+  function calcDays(trip) {
+    if (trip.days) return trip.days;
+    if (trip.startDate && trip.endDate) {
+      const s = new Date(trip.startDate), e = new Date(trip.endDate);
+      return Math.max(1, Math.round((e - s) / 86400000) + 1);
     }
+    return 3;
+  }
+
+  // 智能打包清单
+  function genPackingList(trip) {
+    const days = calcDays(trip);
+    const people = trip.people || 2;
+    const cities = getCities(trip);
+    const hasPlane = (trip.segments || []).some(function(s) { return s.transport === 'plane'; });
+    const items = [];
+    items.push({ cat: '证件', name: '身份证', qty: people, unit: '个', checked: false });
+    if (hasPlane) items.push({ cat: '证件', name: '护照/签证', qty: people, unit: '本', checked: false });
+    items.push({ cat: '证件', name: '手机+充电器', qty: people, unit: '套', checked: false });
+    items.push({ cat: '证件', name: '充电宝', qty: Math.ceil(people / 2), unit: '个', checked: false });
+    items.push({ cat: '衣物', name: '内衣袜子', qty: days * people, unit: '套', checked: false });
+    items.push({ cat: '衣物', name: '外套', qty: people, unit: '件', checked: false });
+    items.push({ cat: '衣物', name: '裤子/裙子', qty: Math.ceil(days / 2) * people, unit: '件', checked: false });
+    items.push({ cat: '衣物', name: '睡衣', qty: people, unit: '套', checked: false });
+    items.push({ cat: '衣物', name: '舒适鞋子', qty: people, unit: '双', checked: false });
+    items.push({ cat: '洗漱', name: '牙刷牙膏', qty: people, unit: '套', checked: false });
+    items.push({ cat: '洗漱', name: '洗面奶', qty: 1, unit: '瓶', checked: false });
+    items.push({ cat: '洗漱', name: '护肤品', qty: 1, unit: '套', checked: false });
+    items.push({ cat: '洗漱', name: '毛巾', qty: people, unit: '条', checked: false });
+    items.push({ cat: '药品', name: '感冒药', qty: 1, unit: '盒', checked: false });
+    items.push({ cat: '药品', name: '肠胃药', qty: 1, unit: '盒', checked: false });
+    items.push({ cat: '药品', name: '创可贴', qty: 10, unit: '片', checked: false });
+    items.push({ cat: '药品', name: '晕车药', qty: people, unit: '片', checked: false });
+    items.push({ cat: '电子', name: '充电器', qty: people, unit: '个', checked: false });
+    items.push({ cat: '电子', name: '耳机', qty: people, unit: '副', checked: false });
+    items.push({ cat: '其他', name: '雨伞', qty: Math.ceil(people / 2), unit: '把', checked: false });
+    items.push({ cat: '其他', name: '水杯', qty: people, unit: '个', checked: false });
+    items.push({ cat: '其他', name: '零食', qty: 1, unit: '袋', checked: false });
+    return items;
+  }
+
+  // 沿途天气 HTML（async）
+  async function weatherHtml(trip) {
+    const cities = getCities(trip);
+    if (!cities.length) return '<div class="empty-hint">暂无城市天气</div>';
+    let html = '<div class="weather-row">';
+    for (const city of cities) {
+      try {
+        const w = (typeof Weather !== 'undefined' && Weather.fetchCity) ? await Weather.fetchCity(city) : null;
+        if (w) {
+          html += '<div class="weather-card"><div class="wc-city">' + city + '</div>' +
+            '<div class="wc-icon">' + (w.emoji || w.icon || '🌈') + '</div>' +
+            '<div class="wc-temp">' + w.temp + '°</div>' +
+            '<div class="wc-text">' + (w.text || '') + '</div></div>';
+        } else {
+          html += '<div class="weather-card"><div class="wc-city">' + city + '</div><div class="wc-icon">🌈</div><div class="wc-temp">--</div><div class="wc-text">暂无数据</div></div>';
+        }
+      } catch(e) {
+        html += '<div class="weather-card"><div class="wc-city">' + city + '</div><div class="wc-icon">🌈</div><div class="wc-temp">--</div><div class="wc-text">获取失败</div></div>';
+      }
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // 打包清单 HTML
+  function packingHtml(trip) {
+    const items = trip.packing || [];
+    if (!items.length) return '<div class="empty-hint">暂无物品，点击"生成打包清单"或手动添加</div>';
+    let html = '';
+    PACK_CATS.forEach(function(cat) {
+      const catItems = items.filter(function(i) { return i.cat === cat; });
+      if (!catItems.length) return;
+      const checked = catItems.filter(function(i) { return i.checked; }).length;
+      html += '<div class="pack-cat"><div class="pc-title">' + cat + ' <span class="pc-count">(' + checked + '/' + catItems.length + ')</span></div>';
+      catItems.forEach(function(item, idx) {
+        const realIdx = items.indexOf(item);
+        html += '<div class="pack-item' + (item.checked ? ' done' : '') + '">' +
+          '<label class="pi-check"><input type="checkbox" data-pack-check="' + realIdx + '" ' + (item.checked ? 'checked' : '') + '></label>' +
+          '<span class="pi-name">' + item.name + '</span>' +
+          '<span class="pi-qty">' + item.qty + (item.unit || '') + '</span>' +
+          '<button class="btn sm ghost" data-pack-del="' + realIdx + '">删</button></div>';
+      });
+      html += '</div>';
+    });
+    // 未分类
+    const otherItems = items.filter(function(i) { return PACK_CATS.indexOf(i.cat) < 0; });
+    if (otherItems.length) {
+      html += '<div class="pack-cat"><div class="pc-title">其他</div>';
+      otherItems.forEach(function(item) {
+        const realIdx = items.indexOf(item);
+        html += '<div class="pack-item' + (item.checked ? ' done' : '') + '">' +
+          '<label class="pi-check"><input type="checkbox" data-pack-check="' + realIdx + '" ' + (item.checked ? 'checked' : '') + '></label>' +
+          '<span class="pi-name">' + item.name + '</span>' +
+          '<span class="pi-qty">' + item.qty + (item.unit || '') + '</span>' +
+          '<button class="btn sm ghost" data-pack-del="' + realIdx + '">删</button></div>';
+      });
+      html += '</div>';
+    }
+    return html;
+  }
+
+  // 行程时间轴 HTML
+  function timelineHtml(trip) {
+    const segs = trip.segments || [];
+    if (!segs.length) return '<div class="empty-hint">暂无行程段，点击编辑添加</div>';
     let html = '<div class="trip-timeline">';
-    trip.segments.forEach(function(seg, i) {
-      if (seg.kind === 'transport') {
-        const icon = TRANSPORT_ICONS[seg.transport] || '🚶';
-        const name = TRANSPORT_NAMES[seg.transport] || '交通';
-        html += '<div class="tl-item transport">' +
-          '<div class="tl-icon">' + icon + '</div>' +
-          '<div class="tl-content">' +
-            '<div class="tl-title">' + UI.esc(seg.from || '?') + ' → ' + UI.esc(seg.to || '?') + '</div>' +
-            '<div class="tl-meta">' + name + (seg.depart ? ' · 出发 ' + fmtDate(seg.depart) : '') + (seg.arrive ? ' · 到达 ' + fmtDate(seg.arrive) : '') + '</div>' +
-            (seg.note ? '<div class="tl-note">' + UI.esc(seg.note) + '</div>' : '') +
-          '</div>' +
-          '<div class="tl-actions">' +
-            '<button class="btn sm ghost" data-edit-seg="' + i + '">编辑</button>' +
-            '<button class="btn sm ghost" data-del-seg="' + i + '" style="color:var(--red);">删</button>' +
-          '</div>' +
-        '</div>';
+    segs.forEach(function(s, idx) {
+      if (s.kind === 'transport') {
+        html += '<div class="tl-item tl-transport">' +
+          '<div class="tl-icon">' + (TRANSPORT_ICONS[s.transport] || '🚶') + '</div>' +
+          '<div class="tl-content"><div class="tl-title">' + (TRANSPORT_NAMES[s.transport] || '交通') + '：' + s.from + ' → ' + s.to + '</div>' +
+          '<div class="tl-time">' + fmtDate(s.depart) + (s.arrive ? ' → ' + fmtDate(s.arrive) : '') + '</div>' +
+          (s.note ? '<div class="tl-note">' + s.note + '</div>' : '') + '</div></div>';
       } else {
-        html += '<div class="tl-item stay">' +
+        html += '<div class="tl-item tl-stay">' +
           '<div class="tl-icon">🏨</div>' +
-          '<div class="tl-content">' +
-            '<div class="tl-title">停留：' + UI.esc(seg.city || '?') + '</div>' +
-            '<div class="tl-meta">' + (seg.start ? fmtDate(seg.start) : '?') + ' ~ ' + (seg.end ? fmtDate(seg.end) : '?') + '</div>' +
-            (seg.note ? '<div class="tl-note">' + UI.esc(seg.note) + '</div>' : '') +
-          '</div>' +
-          '<div class="tl-actions">' +
-            '<button class="btn sm ghost" data-edit-seg="' + i + '">编辑</button>' +
-            '<button class="btn sm ghost" data-del-seg="' + i + '" style="color:var(--red);">删</button>' +
-          '</div>' +
-        '</div>';
+          '<div class="tl-content"><div class="tl-title">停留：' + s.city + '</div>' +
+          '<div class="tl-time">' + fmtShort(s.start) + (s.end ? ' ~ ' + fmtShort(s.end) : '') + '</div>' +
+          (s.note ? '<div class="tl-note">' + s.note + '</div>' : '') + '</div></div>';
       }
     });
     html += '</div>';
     return html;
   }
 
-  // ===== 添加/编辑分段表单 =====
-  function openSegForm(trip, idx) {
-    const seg = idx != null ? trip.segments[idx] : null;
-    const isEdit = !!seg;
-    const kind = seg ? seg.kind : 'transport';
-    UI.openModal(
-      '<h3>' + (isEdit ? '编辑行程段' : '添加行程段') + '</h3>' +
-      '<div class="field"><label>类型</label><select id="seg-kind">' +
-        '<option value="transport" ' + (kind === 'transport' ? 'selected' : '') + '>🚄 交通段</option>' +
-        '<option value="stay" ' + (kind === 'stay' ? 'selected' : '') + '>🏨 停留段</option>' +
-      '</select></div>' +
-      (kind === 'transport'
-        ? '<div class="two"><div class="field"><label>出发地</label><input id="seg-from" value="' + UI.esc(seg ? seg.from || '' : '') + '" placeholder="如：阳江"></div>' +
-          '<div class="field"><label>目的地</label><input id="seg-to" value="' + UI.esc(seg ? seg.to || '' : '') + '" placeholder="如：广州"></div></div>' +
-          '<div class="field"><label>交通方式</label><select id="seg-transport">' +
-            Object.keys(TRANSPORT_NAMES).map(function(k) { return '<option value="' + k + '"' + (seg && seg.transport === k ? ' selected' : '') + '>' + TRANSPORT_ICONS[k] + ' ' + TRANSPORT_NAMES[k] + '</option>'; }).join('') +
-          '</select></div>' +
-          '<div class="two"><div class="field"><label>出发时间</label><input id="seg-depart" type="datetime-local" value="' + (seg && seg.depart ? seg.depart.slice(0, 16) : '') + '"></div>' +
-          '<div class="field"><label>到达时间</label><input id="seg-arrive" type="datetime-local" value="' + (seg && seg.arrive ? seg.arrive.slice(0, 16) : '') + '"></div></div>'
-        : '<div class="field"><label>停留城市</label><input id="seg-city" value="' + UI.esc(seg ? seg.city || '' : '') + '" placeholder="如：阜阳"></div>' +
-          '<div class="two"><div class="field"><label>开始</label><input id="seg-start" type="date" value="' + (seg ? seg.start || '' : '') + '"></div>' +
-          '<div class="field"><label>结束</label><input id="seg-end" type="date" value="' + (seg ? seg.end || '' : '') + '"></div></div>') +
-      '<div class="field"><label>备注（可选）</label><input id="seg-note" value="' + UI.esc(seg ? seg.note || '' : '') + '" placeholder="如：航班号、酒店名"></div>' +
-      '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save-seg="1">保存</button></div>'
-    );
-    const modal = document.querySelector('.modal');
-    modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
-    // 类型切换时重新渲染表单
-    modal.querySelector('#seg-kind').addEventListener('change', function() {
-      UI.closeModal();
-      const newKind = this.value;
-      const tempSeg = seg ? Object.assign({}, seg, { kind: newKind }) : { kind: newKind };
-      // 临时保存到一个变量，重新打开表单
-      window._tempSeg = tempSeg;
-      openSegFormWithSeg(trip, idx, tempSeg);
+  // 打卡清单 HTML
+  function checklistHtml(trip) {
+    const items = trip.checklist || [];
+    if (!items.length) return '<div class="empty-hint">暂无打卡点</div>';
+    let html = '<div class="check-list">';
+    items.forEach(function(item, idx) {
+      html += '<div class="check-item' + (item.done ? ' done' : '') + '">' +
+        '<label><input type="checkbox" data-check-toggle="' + idx + '" ' + (item.done ? 'checked' : '') + '></label>' +
+        '<span>' + item.name + '</span>' +
+        '<button class="btn sm ghost" data-check-del="' + idx + '">删</button></div>';
     });
-    modal.querySelector('[data-save-seg]').addEventListener('click', async function() {
-      const k = document.getElementById('seg-kind').value;
-      let obj;
-      if (k === 'transport') {
-        obj = { kind: 'transport', from: document.getElementById('seg-from').value.trim(), to: document.getElementById('seg-to').value.trim(), transport: document.getElementById('seg-transport').value, depart: document.getElementById('seg-depart').value, arrive: document.getElementById('seg-arrive').value, note: document.getElementById('seg-note').value.trim() };
-      } else {
-        obj = { kind: 'stay', city: document.getElementById('seg-city').value.trim(), start: document.getElementById('seg-start').value, end: document.getElementById('seg-end').value, note: document.getElementById('seg-note').value.trim() };
-      }
-      if (!trip.segments) trip.segments = [];
-      if (isEdit) trip.segments[idx] = obj; else trip.segments.push(obj);
-      await DB.put('trips', trip);
-      UI.closeModal();
-      UI.toast('已保存');
-      App.render();
-    });
-  }
-
-  function openSegFormWithSeg(trip, idx, seg) {
-    // 用指定 seg 打开表单（用于类型切换）
-    const isEdit = idx != null;
-    const kind = seg.kind;
-    UI.openModal(
-      '<h3>' + (isEdit ? '编辑行程段' : '添加行程段') + '</h3>' +
-      '<div class="field"><label>类型</label><select id="seg-kind">' +
-        '<option value="transport" ' + (kind === 'transport' ? 'selected' : '') + '>🚄 交通段</option>' +
-        '<option value="stay" ' + (kind === 'stay' ? 'selected' : '') + '>🏨 停留段</option>' +
-      '</select></div>' +
-      (kind === 'transport'
-        ? '<div class="two"><div class="field"><label>出发地</label><input id="seg-from" value="' + UI.esc(seg.from || '') + '"></div>' +
-          '<div class="field"><label>目的地</label><input id="seg-to" value="' + UI.esc(seg.to || '') + '"></div></div>' +
-          '<div class="field"><label>交通方式</label><select id="seg-transport">' +
-            Object.keys(TRANSPORT_NAMES).map(function(k) { return '<option value="' + k + '"' + (seg.transport === k ? ' selected' : '') + '>' + TRANSPORT_ICONS[k] + ' ' + TRANSPORT_NAMES[k] + '</option>'; }).join('') +
-          '</select></div>' +
-          '<div class="two"><div class="field"><label>出发时间</label><input id="seg-depart" type="datetime-local" value="' + (seg.depart ? seg.depart.slice(0, 16) : '') + '"></div>' +
-          '<div class="field"><label>到达时间</label><input id="seg-arrive" type="datetime-local" value="' + (seg.arrive ? seg.arrive.slice(0, 16) : '') + '"></div></div>'
-        : '<div class="field"><label>停留城市</label><input id="seg-city" value="' + UI.esc(seg.city || '') + '"></div>' +
-          '<div class="two"><div class="field"><label>开始</label><input id="seg-start" type="date" value="' + seg.start || '' + '"></div>' +
-          '<div class="field"><label>结束</label><input id="seg-end" type="date" value="' + seg.end || '' + '"></div></div>') +
-      '<div class="field"><label>备注</label><input id="seg-note" value="' + UI.esc(seg.note || '') + '"></div>' +
-      '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save-seg="1">保存</button></div>'
-    );
-    const modal = document.querySelector('.modal');
-    modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
-    modal.querySelector('#seg-kind').addEventListener('change', function() {
-      UI.closeModal();
-      const newKind = this.value;
-      const tempSeg = Object.assign({}, seg, { kind: newKind });
-      openSegFormWithSeg(trip, idx, tempSeg);
-    });
-    modal.querySelector('[data-save-seg]').addEventListener('click', async function() {
-      const k = document.getElementById('seg-kind').value;
-      let obj;
-      if (k === 'transport') {
-        obj = { kind: 'transport', from: document.getElementById('seg-from').value.trim(), to: document.getElementById('seg-to').value.trim(), transport: document.getElementById('seg-transport').value, depart: document.getElementById('seg-depart').value, arrive: document.getElementById('seg-arrive').value, note: document.getElementById('seg-note').value.trim() };
-      } else {
-        obj = { kind: 'stay', city: document.getElementById('seg-city').value.trim(), start: document.getElementById('seg-start').value, end: document.getElementById('seg-end').value, note: document.getElementById('seg-note').value.trim() };
-      }
-      if (!trip.segments) trip.segments = [];
-      if (isEdit) trip.segments[idx] = obj; else trip.segments.push(obj);
-      await DB.put('trips', trip);
-      UI.closeModal();
-      UI.toast('已保存');
-      App.render();
-    });
-  }
-
-  // ===== 智能打包清单（根据行程天数、人数、天气、交通方式） =====
-  function genPackingList(trip) {
-    const days = trip.days || 3;
-    const people = trip.people || 2;
-    const items = [];
-    // 基础
-    items.push({ cat: '证件', name: '身份证', qty: people, unit: '个' });
-    items.push({ cat: '证件', name: '手机+充电器', qty: people, unit: '套' });
-    items.push({ cat: '衣物', name: '内衣袜子', qty: days * people, unit: '套' });
-    items.push({ cat: '衣物', name: '外套', qty: people, unit: '件' });
-    items.push({ cat: '洗漱', name: '牙刷牙膏', qty: people, unit: '套' });
-    items.push({ cat: '洗漱', name: '毛巾', qty: people, unit: '条' });
-    items.push({ cat: '药品', name: '常用药（感冒/肠胃）', qty: 1, unit: '盒' });
-    // 交通方式相关
-    if (trip.segments) {
-      const hasPlane = trip.segments.some(function(s) { return s.kind === 'transport' && s.transport === 'plane'; });
-      const hasTrain = trip.segments.some(function(s) { return s.kind === 'transport' && s.transport === 'train'; });
-      if (hasPlane) items.push({ cat: '证件', name: '机票/登机牌', qty: people, unit: '张' });
-      if (hasTrain) items.push({ cat: '证件', name: '车票', qty: people, unit: '张' });
-    }
-    return items;
-  }
-
-  // ===== 页面主体 =====
-  async function body() {
-    const trips = await DB.getAll('trips');
-    const members = await DB.getAll('members');
-
-    let html = '';
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
-      '<h3 style="margin:0;font-size:18px;font-weight:800;">✈️ 旅行规划</h3>' +
-      '<button class="btn sm" data-new-trip="1">+ 新建旅行</button>' +
-    '</div>';
-
-    if (!trips.length) {
-      html += '<div class="card" style="text-align:center;padding:40px 20px;">' +
-        '<div style="font-size:48px;margin-bottom:12px;">🧳</div>' +
-        '<div style="font-size:15px;font-weight:600;margin-bottom:6px;">还没有旅行计划</div>' +
-        '<div style="color:var(--sub);font-size:13px;margin-bottom:16px;">点右上角新建，开始规划下一次出行</div>' +
-        '<button class="btn" data-new-trip="1">+ 创建旅行</button></div>';
-      return html;
-    }
-
-    trips.forEach(function(trip) {
-      ensureSegments(trip);
-      const isOpen = trip._open;
-      const transportCount = trip.segments.filter(function(s) { return s.kind === 'transport'; }).length;
-      const stayCount = trip.segments.filter(function(s) { return s.kind === 'stay'; }).length;
-      html += '<div class="card" style="margin-bottom:14px;">' +
-        '<div style="display:flex;align-items:center;gap:10px;cursor:pointer;" data-toggle-trip="' + trip.id + '">' +
-          '<div style="font-size:28px;">' + (trip.emoji || '🧳') + '</div>' +
-          '<div style="flex:1;min-width:0;">' +
-            '<div style="font-weight:700;font-size:15px;">' + UI.esc(trip.name || '未命名旅行') + '</div>' +
-            '<div style="font-size:12px;color:var(--sub);">' + (trip.start_date || '') + ' ~ ' + (trip.end_date || '') + ' · ' + transportCount + '段交通 · ' + stayCount + '段停留</div>' +
-          '</div>' +
-          '<span style="font-size:18px;color:var(--sub);">' + (isOpen ? '▲' : '▼') + '</span>' +
-        '</div>';
-
-      if (isOpen) {
-        html += '<div style="margin-top:14px;border-top:2px solid var(--border);padding-top:14px;">';
-        // 行程时间轴
-        html += '<div class="section-title">🗺️ 行程时间轴</div>';
-        html += timelineHtml(trip);
-        html += '<button class="btn sm ghost" data-add-seg="' + trip.id + '" style="margin-top:8px;">+ 添加行程段</button>';
-
-        // 操作按钮
-        html += '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">' +
-          '<button class="btn sm" data-gen-packing="' + trip.id + '">📦 生成打包清单</button>' +
-          '<button class="btn sm ghost" data-gen-tasks="' + trip.id + '">🎫 生成购票任务</button>' +
-          '<button class="btn sm ghost" data-ai-trip="' + trip.id + '">✨ AI 生成行程</button>' +
-          '<button class="btn sm ghost" data-edit-trip="' + trip.id + '">编辑</button>' +
-          '<button class="btn sm ghost" data-del-trip="' + trip.id + '" style="color:var(--red);">删除</button>' +
-        '</div>';
-
-        // 打包清单
-        if (trip.packing && trip.packing.length) {
-          html += '<div class="section-title" style="margin-top:14px;">📦 打包清单（' + trip.packing.filter(function(p){return p.done;}).length + '/' + trip.packing.length + '）</div>';
-          html += '<div class="card" style="padding:8px 12px;">';
-          trip.packing.forEach(function(p, pi) {
-            html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;' + (pi < trip.packing.length - 1 ? 'border-bottom:1px solid var(--border);' : '') + '">' +
-              '<div class="t-check' + (p.done ? ' checked' : '') + '" data-pack-toggle="' + trip.id + '|' + pi + '">' + (p.done ? '✓' : '') + '</div>' +
-              '<span style="flex:1;' + (p.done ? 'text-decoration:line-through;color:var(--sub);' : '') + '">' + UI.esc(p.name) + '</span>' +
-              '<span style="font-size:12px;color:var(--sub);">' + p.qty + (p.unit || '') + '</span>' +
-            '</div>';
-          });
-          html += '</div>';
-        }
-        html += '</div>';
-      }
-      html += '</div>';
-    });
-
+    html += '</div>';
     return html;
   }
 
-  // ===== 新建/编辑旅行表单 =====
-  function openTripForm(trip) {
-    UI.openModal(
-      '<h3>' + (trip ? '编辑旅行' : '新建旅行') + '</h3>' +
-      '<div class="field"><label>旅行名称</label><input id="tp-name" value="' + UI.esc(trip ? trip.name || '' : '') + '" placeholder="如：国庆回老家"></div>' +
-      '<div class="two">' +
-        '<div class="field"><label>开始日期</label><input id="tp-start" type="date" value="' + (trip ? trip.start_date || '' : '') + '"></div>' +
-        '<div class="field"><label>结束日期</label><input id="tp-end" type="date" value="' + (trip ? trip.end_date || '' : '') + '"></div>' +
+  // 旅行详情 body（async，因为天气）
+  async function detailBody(trip) {
+    ensureSegments(trip);
+    const days = calcDays(trip);
+    const cities = getCities(trip);
+    const weather = await weatherHtml(trip);
+
+    let html = '<div class="trip-detail">' +
+      '<div class="td-header"><h2>' + trip.name + '</h2>' +
+      '<div class="td-meta">' + (trip.startDate || '') + (trip.endDate ? ' ~ ' + trip.endDate : '') + ' · ' + (trip.people || 2) + '人 · ' + days + '天' +
+      (trip.budget ? ' · 预算¥' + trip.budget : '') + '</div></div>' +
+
+      '<div class="td-actions">' +
+      '<button class="btn sm" data-trip-edit="' + trip.id + '">✏️ 编辑</button>' +
+      '<button class="btn sm" data-trip-gen-pack="' + trip.id + '">🎒 生成打包清单</button>' +
+      '<button class="btn sm" data-trip-gen-tickets="' + trip.id + '">🎫 生成购票任务</button>' +
+      '<button class="btn sm" data-trip-ai="' + trip.id + '">🤖 AI生成行程</button>' +
+      '<button class="btn sm danger" data-trip-del="' + trip.id + '">🗑️ 删除</button>' +
       '</div>' +
-      '<div class="two">' +
-        '<div class="field"><label>出行人数</label><input id="tp-people" type="number" min="1" value="' + (trip ? trip.people || 2 : 2) + '"></div>' +
-        '<div class="field"><label>预算（元）</label><input id="tp-budget" type="number" min="0" value="' + (trip ? trip.budget || 0 : 0) + '"></div>' +
-      '</div>' +
-      '<div class="field"><label>出发地</label><input id="tp-origin" value="' + UI.esc(trip ? trip.origin || '阳江' : '阳江') + '"></div>' +
-      '<div class="foot"><button class="btn ghost" data-x="1">取消</button><button class="btn" data-save-trip="1">保存</button></div>'
-    );
-    const modal = document.querySelector('.modal');
-    modal.querySelector('[data-x]').addEventListener('click', function() { UI.closeModal(); });
-    modal.querySelector('[data-save-trip]').addEventListener('click', async function() {
-      const name = document.getElementById('tp-name').value.trim();
-      if (!name) { UI.toast('请填写旅行名称'); return; }
-      const start = document.getElementById('tp-start').value;
-      const end = document.getElementById('tp-end').value;
-      const people = +document.getElementById('tp-people').value || 2;
-      const budget = +document.getElementById('tp-budget').value || 0;
-      const origin = document.getElementById('tp-origin').value.trim();
-      let days = 1;
-      if (start && end) {
-        days = Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1);
-      }
-      const obj = { name: name, start_date: start, end_date: end, people: people, budget: budget, origin: origin, days: days, emoji: '🧳' };
-      if (trip) { obj.id = trip.id; obj.segments = trip.segments; obj.packing = trip.packing; }
-      if (trip) await DB.put('trips', obj); else await DB.add('trips', obj);
-      UI.closeModal();
-      UI.toast('已保存');
-      App.render();
-    });
+
+      '<div class="td-section"><h3>📍 行程时间轴</h3>' + timelineHtml(trip) + '</div>' +
+
+      '<div class="td-section"><h3>🌤️ 沿途天气</h3>' + weather + '</div>' +
+
+      '<div class="td-section"><h3>🎒 打包清单 <button class="btn sm ghost" data-pack-add="' + trip.id + '">+ 添加物品</button></h3>' +
+      packingHtml(trip) + '</div>' +
+
+      '<div class="td-section"><h3>📸 打卡清单 <button class="btn sm ghost" data-check-add="' + trip.id + '">+ 添加打卡点</button></h3>' +
+      checklistHtml(trip) + '</div>' +
+
+      '<div class="td-section"><h3>💰 旅行预算</h3>' +
+      '<div class="budget-info">总预算：¥' + (trip.budget || 0) +
+      ' · 已花：¥' + (trip.spent || 0) +
+      ' · 剩余：¥' + ((trip.budget || 0) - (trip.spent || 0)) + '</div></div>' +
+
+      '</div>';
+    return html;
   }
 
-  // ===== 生成购票任务 =====
-  async function genTripTasks(trip) {
-    if (!trip.segments || !trip.segments.length) { UI.toast('请先添加行程段'); return; }
-    let count = 0;
-    trip.segments.forEach(function(seg) {
-      if (seg.kind === 'transport' && seg.transport !== 'car' && seg.transport !== 'other' && seg.depart) {
-        const icon = TRANSPORT_ICONS[seg.transport] || '';
-        const name = TRANSPORT_NAMES[seg.transport] || '交通';
-        DB.add('tasks', {
-          title: icon + ' 购票：' + seg.from + '→' + seg.to + '（' + name + '）',
-          due: seg.depart.slice(0, 10),
-          time: seg.depart.slice(11, 16) || '',
-          done: false,
-          source: 'trip',
-          note: '出发时间：' + seg.depart + (seg.note ? '，备注：' + seg.note : '')
-        });
-        count++;
+  // 编辑表单 HTML
+  function editForm(trip) {
+    ensureSegments(trip);
+    const t = trip || { name: '', startDate: '', endDate: '', people: 2, budget: '', origin: '', segments: [], packing: [], checklist: [] };
+    let segsHtml = '';
+    (t.segments || []).forEach(function(s, idx) {
+      if (s.kind === 'transport') {
+        segsHtml += '<div class="seg-row" data-seg-idx="' + idx + '">' +
+          '<div class="seg-kind">🚗 交通</div>' +
+          '<select data-seg-transport="' + idx + '">' +
+          Object.keys(TRANSPORT_NAMES).map(function(k) { return '<option value="' + k + '"' + (s.transport === k ? ' selected' : '') + '>' + TRANSPORT_ICONS[k] + ' ' + TRANSPORT_NAMES[k] + '</option>'; }).join('') +
+          '</select>' +
+          '<input type="text" data-seg-from="' + idx + '" placeholder="出发地" value="' + (s.from || '') + '">' +
+          '<input type="text" data-seg-to="' + idx + '" placeholder="目的地" value="' + (s.to || '') + '">' +
+          '<input type="datetime-local" data-seg-depart="' + idx + '" value="' + (s.depart || '') + '">' +
+          '<input type="datetime-local" data-seg-arrive="' + idx + '" value="' + (s.arrive || '') + '">' +
+          '<button class="btn sm danger" data-seg-del="' + idx + '">删</button></div>';
+      } else {
+        segsHtml += '<div class="seg-row" data-seg-idx="' + idx + '">' +
+          '<div class="seg-kind">🏨 停留</div>' +
+          '<input type="text" data-seg-city="' + idx + '" placeholder="城市" value="' + (s.city || '') + '">' +
+          '<input type="date" data-seg-start="' + idx + '" value="' + (s.start || '') + '">' +
+          '<input type="date" data-seg-end="' + idx + '" value="' + (s.end || '') + '">' +
+          '<input type="text" data-seg-note="' + idx + '" placeholder="备注/酒店" value="' + (s.note || '') + '">' +
+          '<button class="btn sm danger" data-seg-del="' + idx + '">删</button></div>';
       }
     });
-    UI.toast(count > 0 ? '已生成' + count + '个购票任务' : '没有需要购票的交通段（自驾无需购票）');
+
+    return '<div class="trip-edit-form">' +
+      '<div class="form-row"><label>旅行名称</label><input type="text" id="te-name" value="' + (t.name || '') + '" placeholder="如：国庆回老家"></div>' +
+      '<div class="form-row"><label>出发日期</label><input type="date" id="te-start" value="' + (t.startDate || '') + '"></div>' +
+      '<div class="form-row"><label>返回日期</label><input type="date" id="te-end" value="' + (t.endDate || '') + '"></div>' +
+      '<div class="form-row"><label>人数</label><input type="number" id="te-people" value="' + (t.people || 2) + '" min="1"></div>' +
+      '<div class="form-row"><label>预算(元)</label><input type="number" id="te-budget" value="' + (t.budget || '') + '" placeholder="可选"></div>' +
+
+      '<div class="form-row"><label>行程分段</label>' +
+      '<div class="seg-list">' + segsHtml + '</div>' +
+      '<div class="seg-add-btns">' +
+      '<button class="btn sm" data-add-transport>+ 添加交通段</button>' +
+      '<button class="btn sm" data-add-stay>+ 添加停留段</button>' +
+      '</div></div>' +
+
+      '<div class="form-actions">' +
+      '<button class="btn primary" data-trip-save="' + (t.id || '') + '">💾 保存</button>' +
+      '<button class="btn" data-trip-cancel>取消</button>' +
+      '</div></div>';
   }
 
-  // ===== 事件绑定 =====
-  function bind(root) {
-    root.addEventListener('click', async function(e) {
-      const t = e.target.closest('[data-new-trip],[data-toggle-trip],[data-edit-trip],[data-del-trip],[data-add-seg],[data-edit-seg],[data-del-seg],[data-gen-packing],[data-gen-tasks],[data-ai-trip],[data-pack-toggle]');
-      if (!t) return;
+  // 主页面 body
+  async function body() {
+    if (window._tripEditing) {
+      return '<div class="page-head"><h2>✏️ ' + (window._tripEditing.id ? '编辑旅行' : '新建旅行') + '</h2></div>' + editForm(window._tripEditing);
+    }
+    const trips = await DB.getAll('trips');
+    const expanded = window._tripExpanded || null;
 
-      if (t.getAttribute('data-new-trip')) {
-        openTripForm(null);
-      } else if (t.getAttribute('data-toggle-trip')) {
-        const id = +t.getAttribute('data-toggle-trip');
-        const trips = await DB.getAll('trips');
-        const trip = trips.find(function(x) { return x.id === id; });
-        if (trip) { trip._open = !trip._open; App.render(); }
-      } else if (t.getAttribute('data-edit-trip')) {
-        const id = +t.getAttribute('data-edit-trip');
-        const trip = await DB.get('trips', id);
-        if (trip) openTripForm(trip);
-      } else if (t.getAttribute('data-del-trip')) {
-        if (confirm('确定删除这个旅行计划？')) {
-          await DB.del('trips', +t.getAttribute('data-del-trip'));
-          UI.toast('已删除');
-          App.render();
-        }
-      } else if (t.getAttribute('data-add-seg')) {
-        const id = +t.getAttribute('data-add-seg');
-        const trip = await DB.get('trips', id);
-        if (trip) { ensureSegments(trip); openSegForm(trip, null); }
-      } else if (t.getAttribute('data-edit-seg')) {
-        const idx = +t.getAttribute('data-edit-seg');
-        const card = t.closest('.card');
-        const toggleBtn = card.querySelector('[data-toggle-trip]');
-        const id = +toggleBtn.getAttribute('data-toggle-trip');
-        const trip = await DB.get('trips', id);
-        if (trip) { ensureSegments(trip); openSegForm(trip, idx); }
-      } else if (t.getAttribute('data-del-seg')) {
-        const idx = +t.getAttribute('data-del-seg');
-        const card = t.closest('.card');
-        const toggleBtn = card.querySelector('[data-toggle-trip]');
-        const id = +toggleBtn.getAttribute('data-toggle-trip');
-        const trip = await DB.get('trips', id);
-        if (trip && trip.segments) {
-          trip.segments.splice(idx, 1);
-          await DB.put('trips', trip);
-          UI.toast('已删除');
-          App.render();
-        }
-      } else if (t.getAttribute('data-gen-packing')) {
-        const id = +t.getAttribute('data-gen-packing');
+    if (!trips.length) {
+      return '<div class="page-head"><h2>✈️ 旅行规划</h2><button class="btn primary" data-trip-new>+ 新建旅行</button></div>' +
+        '<div class="empty-state"><div class="empty-icon">🧳</div><p>还没有旅行计划</p><button class="btn primary" data-trip-new>创建第一次旅行</button></div>';
+    }
+
+    let html = '<div class="page-head"><h2>✈️ 旅行规划</h2><button class="btn primary" data-trip-new>+ 新建旅行</button></div>';
+    html += '<div class="trip-list">';
+
+    for (const trip of trips) {
+      ensureSegments(trip);
+      const days = calcDays(trip);
+      const cities = getCities(trip);
+      const isOpen = expanded === trip.id;
+      const transportCount = (trip.segments || []).filter(function(s) { return s.kind === 'transport'; }).length;
+      const stayCount = (trip.segments || []).filter(function(s) { return s.kind === 'stay'; }).length;
+
+      html += '<div class="trip-card' + (isOpen ? ' open' : '') + '">' +
+        '<div class="tc-head" data-trip-toggle="' + trip.id + '">' +
+        '<div class="tc-icon">🧳</div>' +
+        '<div class="tc-info"><div class="tc-name">' + trip.name + '</div>' +
+        '<div class="tc-meta">' + (trip.startDate || '') + (trip.endDate ? ' ~ ' + trip.endDate : '') + ' · ' + (trip.people || 2) + '人 · ' + days + '天 · ' + cities.join('→') + '</div>' +
+        '<div class="tc-sub">' + transportCount + '段交通 · ' + stayCount + '段停留</div></div>' +
+        '<div class="tc-arrow">' + (isOpen ? '▲' : '▼') + '</div></div>';
+
+      if (isOpen) {
+        html += '<div class="tc-body" id="trip-body-' + trip.id + '">' + await detailBody(trip) + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // 事件绑定
+  async function bind(root) {
+    // 新建
+    root.querySelectorAll('[data-trip-new]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        window._tripEditing = { id: '', name: '', startDate: '', endDate: '', people: 2, budget: '', segments: [], packing: [], checklist: [] };
+        App.render();
+      });
+    });
+
+    // 展开/折叠
+    root.querySelectorAll('[data-trip-toggle]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        const id = +el.getAttribute('data-trip-toggle');
+        window._tripExpanded = (window._tripExpanded === id) ? null : id;
+        App.render();
+      });
+    });
+
+    // 编辑
+    root.querySelectorAll('[data-trip-edit]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const id = +el.getAttribute('data-trip-edit');
         const trip = await DB.get('trips', id);
         if (trip) {
-          trip.packing = genPackingList(trip).map(function(p) { return Object.assign({ done: false }, p); });
-          await DB.put('trips', trip);
-          UI.toast('已生成打包清单（' + trip.packing.length + '项）');
+          window._tripEditing = trip;
           App.render();
         }
-      } else if (t.getAttribute('data-gen-tasks')) {
-        const id = +t.getAttribute('data-gen-tasks');
-        const trip = await DB.get('trips', id);
-        if (trip) { ensureSegments(trip); genTripTasks(trip); }
-      } else if (t.getAttribute('data-ai-trip')) {
-        const id = +t.getAttribute('data-ai-trip');
-        const trip = await DB.get('trips', id);
-        if (trip && typeof AI !== 'undefined' && AI.genTrip) {
-          UI.toast('AI 正在生成行程…');
-          const r = await AI.genTrip(trip);
-          if (r.ok && r.segments) {
-            trip.segments = r.segments;
-            await DB.put('trips', trip);
-            UI.toast('AI 行程已生成');
-            App.render();
-          } else {
-            UI.toast('AI 生成失败，请检查接口配置');
-          }
-        } else {
-          UI.toast('请先在设置页配置 AI 接口');
-        }
-      } else if (t.getAttribute('data-pack-toggle')) {
-        const parts = t.getAttribute('data-pack-toggle').split('|');
-        const id = +parts[0], pi = +parts[1];
-        const trip = await DB.get('trips', id);
-        if (trip && trip.packing && trip.packing[pi]) {
-          trip.packing[pi].done = !trip.packing[pi].done;
-          await DB.put('trips', trip);
-          App.render();
-        }
-      }
+      });
     });
+
+    // 删除
+    root.querySelectorAll('[data-trip-del]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        if (!confirm('确定删除这个旅行计划？')) return;
+        const id = +el.getAttribute('data-trip-del');
+        await DB.del('trips', id);
+        window._tripExpanded = null;
+        UI.toast('已删除');
+        App.render();
+      });
+    });
+
+    // 生成打包清单
+    root.querySelectorAll('[data-trip-gen-pack]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const id = +el.getAttribute('data-trip-gen-pack');
+        const trip = await DB.get('trips', id);
+        if (!trip) return;
+        trip.packing = genPackingList(trip);
+        await DB.put('trips', trip);
+        UI.toast('已生成打包清单');
+        App.render();
+      });
+    });
+
+    // 生成购票任务
+    root.querySelectorAll('[data-trip-gen-tickets]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const id = +el.getAttribute('data-trip-gen-tickets');
+        const trip = await DB.get('trips', id);
+        if (!trip) return;
+        ensureSegments(trip);
+        let count = 0;
+        (trip.segments || []).forEach(function(s) {
+          if (s.kind === 'transport' && s.transport !== 'car' && s.transport !== 'other') {
+            const due = s.depart ? s.depart.slice(0, 10) : (trip.startDate || '');
+            DB.add('tasks', { title: '购票：' + (TRANSPORT_NAMES[s.transport] || '') + ' ' + s.from + '→' + s.to, due: due, time: s.depart ? s.depart.slice(11, 16) : '', member: '', note: '旅行「' + trip.name + '」' });
+            count++;
+          }
+        });
+        UI.toast(count ? '已生成' + count + '个购票任务' : '无需购票（自驾/其他）');
+      });
+    });
+
+    // AI生成行程
+    root.querySelectorAll('[data-trip-ai]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const id = +el.getAttribute('data-trip-ai');
+        const trip = await DB.get('trips', id);
+        if (!trip) return;
+        UI.toast('AI生成中...');
+        try {
+          if (typeof AI !== 'undefined' && AI.genTrip) {
+            const result = await AI.genTrip(trip);
+            if (result && result.segments) {
+              trip.segments = result.segments;
+              await DB.put('trips', trip);
+              UI.toast('AI行程已生成');
+              App.render();
+            } else {
+              UI.toast('AI暂不可用，使用本地推荐');
+            }
+          } else {
+            UI.toast('AI功能暂未配置');
+          }
+        } catch(e) {
+          UI.toast('AI生成失败');
+        }
+      });
+    });
+
+    // 打包清单勾选
+    root.querySelectorAll('[data-pack-check]').forEach(function(el) {
+      el.addEventListener('change', async function() {
+        const idx = +el.getAttribute('data-pack-check');
+        const tripId = window._tripExpanded;
+        const trip = await DB.get('trips', tripId);
+        if (trip && trip.packing && trip.packing[idx]) {
+          trip.packing[idx].checked = el.checked;
+          await DB.put('trips', trip);
+        }
+      });
+    });
+
+    // 打包清单删除
+    root.querySelectorAll('[data-pack-del]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const idx = +el.getAttribute('data-pack-del');
+        const tripId = window._tripExpanded;
+        const trip = await DB.get('trips', tripId);
+        if (trip && trip.packing) {
+          trip.packing.splice(idx, 1);
+          await DB.put('trips', trip);
+          App.render();
+        }
+      });
+    });
+
+    // 添加物品
+    root.querySelectorAll('[data-pack-add]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const name = prompt('物品名称：');
+        if (!name) return;
+        const qty = parseInt(prompt('数量：', '1')) || 1;
+        const unit = prompt('单位（个/件/套等，可留空）：', '') || '';
+        const cat = prompt('分类（证件/衣物/洗漱/药品/电子/其他）：', '其他') || '其他';
+        const tripId = +el.getAttribute('data-pack-add');
+        const trip = await DB.get('trips', tripId);
+        if (trip) {
+          trip.packing = trip.packing || [];
+          trip.packing.push({ cat: cat, name: name, qty: qty, unit: unit, checked: false });
+          await DB.put('trips', trip);
+          App.render();
+        }
+      });
+    });
+
+    // 打卡点勾选
+    root.querySelectorAll('[data-check-toggle]').forEach(function(el) {
+      el.addEventListener('change', async function() {
+        const idx = +el.getAttribute('data-check-toggle');
+        const tripId = window._tripExpanded;
+        const trip = await DB.get('trips', tripId);
+        if (trip && trip.checklist && trip.checklist[idx]) {
+          trip.checklist[idx].done = el.checked;
+          await DB.put('trips', trip);
+        }
+      });
+    });
+
+    // 打卡点删除
+    root.querySelectorAll('[data-check-del]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const idx = +el.getAttribute('data-check-del');
+        const tripId = window._tripExpanded;
+        const trip = await DB.get('trips', tripId);
+        if (trip && trip.checklist) {
+          trip.checklist.splice(idx, 1);
+          await DB.put('trips', trip);
+          App.render();
+        }
+      });
+    });
+
+    // 添加打卡点
+    root.querySelectorAll('[data-check-add]').forEach(function(el) {
+      el.addEventListener('click', async function() {
+        const name = prompt('打卡点名称：');
+        if (!name) return;
+        const tripId = +el.getAttribute('data-check-add');
+        const trip = await DB.get('trips', tripId);
+        if (trip) {
+          trip.checklist = trip.checklist || [];
+          trip.checklist.push({ name: name, done: false });
+          await DB.put('trips', trip);
+          App.render();
+        }
+      });
+    });
+
+    // === 编辑表单 ===
+    if (window._tripEditing) {
+      // 添加交通段
+      root.querySelectorAll('[data-add-transport]').forEach(function(el) {
+        el.addEventListener('click', function() {
+          window._tripEditing.segments = window._tripEditing.segments || [];
+          window._tripEditing.segments.push({ kind: 'transport', from: '', to: '', transport: 'car', depart: '', arrive: '', note: '' });
+          App.render();
+        });
+      });
+      // 添加停留段
+      root.querySelectorAll('[data-add-stay]').forEach(function(el) {
+        el.addEventListener('click', function() {
+          window._tripEditing.segments = window._tripEditing.segments || [];
+          window._tripEditing.segments.push({ kind: 'stay', city: '', start: '', end: '', note: '' });
+          App.render();
+        });
+      });
+      // 删除段
+      root.querySelectorAll('[data-seg-del]').forEach(function(el) {
+        el.addEventListener('click', function() {
+          const idx = +el.getAttribute('data-seg-del');
+          window._tripEditing.segments.splice(idx, 1);
+          App.render();
+        });
+      });
+      // 取消
+      root.querySelectorAll('[data-trip-cancel]').forEach(function(el) {
+        el.addEventListener('click', function() {
+          window._tripEditing = null;
+          App.render();
+        });
+      });
+      // 保存
+      root.querySelectorAll('[data-trip-save]').forEach(function(el) {
+        el.addEventListener('click', async function() {
+          const t = window._tripEditing;
+          t.name = document.getElementById('te-name').value || '未命名旅行';
+          t.startDate = document.getElementById('te-start').value;
+          t.endDate = document.getElementById('te-end').value;
+          t.people = parseInt(document.getElementById('te-people').value) || 2;
+          t.budget = document.getElementById('te-budget').value;
+          // 收集 segments
+          const segs = [];
+          root.querySelectorAll('.seg-row').forEach(function(row) {
+            const idx = +row.getAttribute('data-seg-idx');
+            const orig = t.segments[idx];
+            if (orig.kind === 'transport') {
+              segs.push({
+                kind: 'transport',
+                transport: row.querySelector('[data-seg-transport]').value,
+                from: row.querySelector('[data-seg-from]').value,
+                to: row.querySelector('[data-seg-to]').value,
+                depart: row.querySelector('[data-seg-depart]').value,
+                arrive: row.querySelector('[data-seg-arrive]').value,
+                note: ''
+              });
+            } else {
+              segs.push({
+                kind: 'stay',
+                city: row.querySelector('[data-seg-city]').value,
+                start: row.querySelector('[data-seg-start]').value,
+                end: row.querySelector('[data-seg-end]').value,
+                note: row.querySelector('[data-seg-note]').value
+              });
+            }
+          });
+          t.segments = segs;
+          if (t.id) {
+            await DB.put('trips', t);
+          } else {
+            await DB.add('trips', t);
+          }
+          window._tripEditing = null;
+          window._tripExpanded = t.id || null;
+          UI.toast('已保存');
+          App.render();
+        });
+      });
+    }
   }
 
   return { body: body, bind: bind };

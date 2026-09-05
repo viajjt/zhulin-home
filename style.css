@@ -383,6 +383,15 @@ input,select,textarea{font-family:inherit; font-size:14px;}
   .cal-cell{min-height:42px;}
   .cal-cell .cd-num{font-size:13px;}
   #voice-fab{width:56px;height:56px;right:14px;bottom:78px;}
+  /* 财务移动端适配 */
+  .fin-overview{flex-direction:column;gap:8px;}
+  .fin-overview .card{flex:1 1 100%;}
+  .kv{flex-direction:column;align-items:flex-start;gap:6px;}
+  .kv .v{width:100%;}
+  .kv .v input[type=number]{width:100%;}
+  .fin-progress{display:none;}
+  .trip-timeline .tl-item{flex-direction:column;align-items:flex-start;gap:8px;}
+  .tl-actions{display:flex;gap:6px;}
 }
 
 /* 财务功能：未开启时隐藏导航入口 */
@@ -390,4 +399,136 @@ input,select,textarea{font-family:inherit; font-size:14px;}
 body.finance-on [data-nav="finance"]{display:flex;}
 @media(max-width:768px){
   body.finance-on .mobile-nav [data-nav="finance"]{display:flex;}
+}
+
+/* === 旅行模块 v2 === */
+.trip-list{display:flex;flex-direction:column;gap:14px;}
+.trip-card{background:#fff;border-radius:18px;box-shadow:0 2px 12px rgba(0,0,0,.06);overflow:hidden;transition:box-shadow .2s;}
+.trip-card.open{box-shadow:0 4px 20px rgba(0,0,0,.1);}
+.tc-head{display:flex;align-items:center;gap:14px;padding:16px 18px;cursor:pointer;}
+.tc-icon{font-size:32px;flex-shrink:0;}
+.tc-info{flex:1;min-width:0;}
+.tc-name{font-size:17px;font-weight:700;color:var(--text);margin-bottom:2px;}
+.tc-meta{font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tc-sub{font-size:11px;color:#aaa;margin-top:2px;}
+.tc-arrow{color:#ccc;font-size:12px;flex-shrink:0;}
+.tc-body{padding:0 18px 18px;border-top:1px solid var(--border);}
+.td-header{padding:14px 0 10px;}
+.td-header h2{margin:0 0 4px;font-size:18px;}
+.td-meta{font-size:12.5px;color:var(--sub);}
+.td-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.td-section{margin-bottom:18px;}
+.td-section h3{font-size:14px;font-weight:700;margin:0 0 10px;color:var(--text);display:flex;align-items:center;gap:8px;}
+.td-section h3 .btn{margin-left:auto;}
+
+/* 时间轴 */
+.trip-timeline{display:flex;flex-direction:column;gap:0;}
+.tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px dashed var(--border);}
+.tl-item:last-child{border-bottom:none;}
+.tl-icon{font-size:22px;flex-shrink:0;width:36px;height:36px;border-radius:50%;background:var(--bg-soft);display:flex;align-items:center;justify-content:center;}
+.tl-transport .tl-icon{background:#e3f2fd;}
+.tl-stay .tl-icon{background:#fff3e0;}
+.tl-content{flex:1;min-width:0;}
+.tl-title{font-size:13.5px;font-weight:600;color:var(--text);}
+.tl-time{font-size:12px;color:var(--sub);margin-top:2px;}
+.tl-note{font-size:11.5px;color:#999;margin-top:2px;}
+
+/* 天气行 */
+.weather-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;}
+.weather-card{flex-shrink:0;width:90px;background:linear-gradient(135deg,#e3f2fd,#bbdefb);border-radius:14px;padding:10px;text-align:center;}
+.wc-city{font-size:12px;font-weight:600;color:#1565c0;margin-bottom:4px;}
+.wc-icon{font-size:24px;}
+.wc-temp{font-size:18px;font-weight:700;color:#1565c0;}
+.wc-text{font-size:10.5px;color:#1976d2;}
+
+/* 打包清单 */
+.pack-cat{margin-bottom:12px;}
+.pc-title{font-size:12.5px;font-weight:700;color:var(--green-2);margin-bottom:6px;}
+.pc-count{color:#aaa;font-weight:400;}
+.pack-item{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-soft);border-radius:10px;margin-bottom:5px;}
+.pack-item.done{opacity:.5;}
+.pack-item.done .pi-name{text-decoration:line-through;}
+.pi-check{margin:0;}
+.pi-check input{width:18px;height:18px;}
+.pi-name{flex:1;font-size:13px;}
+.pi-qty{font-size:12px;color:var(--sub);flex-shrink:0;}
+
+/* 打卡清单 */
+.check-list{display:flex;flex-direction:column;gap:6px;}
+.check-item{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-soft);border-radius:10px;}
+.check-item.done{opacity:.5;}
+.check-item.done span{text-decoration:line-through;}
+.check-item span{flex:1;font-size:13px;}
+
+/* 预算 */
+.budget-info{padding:12px 14px;background:linear-gradient(135deg,#fff8e1,#ffecb3);border-radius:12px;font-size:13px;font-weight:600;color:#f57f17;}
+
+/* 编辑表单 */
+.trip-edit-form{background:#fff;border-radius:18px;padding:18px;}
+.form-row{margin-bottom:14px;}
+.form-row label{display:block;font-size:12.5px;font-weight:600;color:var(--sub);margin-bottom:6px;}
+.form-row input[type=text],.form-row input[type=number],.form-row input[type=date],.form-row input[type=datetime-local],.form-row select{
+  width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13.5px;box-sizing:border-box;
+}
+.seg-list{display:flex;flex-direction:column;gap:8px;}
+.seg-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;background:var(--bg-soft);border-radius:10px;}
+.seg-kind{font-size:12px;font-weight:700;color:var(--green-2);flex-shrink:0;width:60px;}
+.seg-row input,.seg-row select{flex:1;min-width:100px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;}
+.seg-add-btns{display:flex;gap:8px;margin-top:8px;}
+.form-actions{display:flex;gap:10px;margin-top:18px;}
+
+/* === 移动端首页UI统一规范 === */
+@media(max-width:768px){
+  .hw-hero{padding:16px;border-radius:18px;}
+  .hw-time{font-size:32px;}
+  .hw-date{font-size:13px;}
+  .hw-weather-inner{padding:10px;}
+  .next-trip-card{padding:12px 14px;}
+  .next-trip-card .nt-title{font-size:14px;}
+  .next-trip-card .nt-meta{font-size:11px;}
+  .next-trip-card .nt-days{font-size:20px;}
+  .section-title{font-size:14px;padding:0 2px;}
+  .week-tabs{gap:4px;}
+  .week-tab{min-width:38px;padding:8px 4px;}
+  .week-tab .wd-num{font-size:14px;}
+  .week-tab .wd-name{font-size:10px;}
+  .task-item{padding:10px 12px;}
+  .task-item .ti-title{font-size:13px;}
+  .task-item .ti-meta{font-size:11px;}
+  .next-meal-card{padding:12px 14px;}
+  .next-meal-card .nm-title{font-size:13px;}
+  .next-meal-card .nm-dish{font-size:14px;}
+  .msg-list{padding:10px 12px;}
+  .msg-item{padding:8px 0;}
+  .msg-item .mi-text{font-size:13px;}
+  .msg-item .mi-meta{font-size:10.5px;}
+  .msg-input-row{padding:10px 12px;gap:8px;}
+  .msg-input-row input{padding:8px 10px;font-size:13px;}
+  .empty-state{padding:30px 20px;}
+  .empty-icon{font-size:40px;}
+  /* 旅行移动端 */
+  .tc-head{padding:12px 14px;gap:10px;}
+  .tc-icon{font-size:26px;}
+  .tc-name{font-size:15px;}
+  .tc-meta{font-size:11px;}
+  .tc-body{padding:0 14px 14px;}
+  .td-actions .btn{font-size:11px;padding:6px 10px;}
+  .seg-row{flex-direction:column;align-items:stretch;}
+  .seg-kind{width:auto;}
+  .seg-row input,.seg-row select{width:100%;}
+  /* 财务移动端 */
+  .fin-overview{flex-direction:column;gap:8px;}
+  .fin-card{padding:12px;}
+  .fin-card .fc-label{font-size:11px;}
+  .fin-card .fc-value{font-size:18px;}
+  .kv{flex-direction:column;align-items:flex-start;gap:6px;}
+  .kv .v{width:100%;}
+  .kv .v input{width:100%;box-sizing:border-box;}
+  .fin-progress{display:none;}
+  /* 日程移动端 */
+  .cal-cell{min-height:44px;padding:4px;}
+  .cal-cell .cd-num{font-size:13px;}
+  .cal-cell .cd-dots{font-size:8px;}
+  .event-item{padding:10px 12px;}
+  .event-item .ei-title{font-size:13px;}
 }

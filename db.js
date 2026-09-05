@@ -102,7 +102,8 @@ const DB = (function() {
     });
   }
 
-  async function getAll(store) {
+  // 不过滤的原始获取（同步内部使用）
+  async function getAllRaw(store) {
     await open();
     return new Promise(function(res, rej) {
       const r = tx(store, 'readonly').getAll();
@@ -111,22 +112,63 @@ const DB = (function() {
     });
   }
 
+  async function getAll(store) {
+    const all = await getAllRaw(store);
+    // 过滤掉已软删除的记录
+    return all.filter(function(r) { return !r.deleted; });
+  }
+
   async function get(store, id) {
     await open();
     return new Promise(function(res, rej) {
       const r = tx(store, 'readonly').get(id);
-      r.onsuccess = function() { res(r.result); };
+      r.onsuccess = function() {
+        const result = r.result;
+        // 已软删除的记录返回 null
+        if (result && result.deleted) res(null);
+        else res(result);
+      };
       r.onerror = function() { rej(r.error); };
     });
   }
 
   async function del(store, id) {
+    // 软删除：标记 deleted=true，同步到云端后其他端也会删除
+    // 避免"删除后重新出现"的问题
     await open();
     return new Promise(function(res, rej) {
-      const r = tx(store, 'readwrite').delete(id);
-      r.onsuccess = function() { res(true); };
-      r.onerror = function() { rej(r.error); };
+      const txn = tx(store, 'readwrite');
+      const getReq = txn.get(id);
+      getReq.onsuccess = function() {
+        const existing = getReq.result;
+        if (existing) {
+          existing.deleted = true;
+          existing.updated = Date.now();
+          const putReq = txn.put(existing);
+          putReq.onsuccess = function() { res(true); };
+          putReq.onerror = function() { rej(putReq.error); };
+        } else {
+          res(true);
+        }
+      };
+      getReq.onerror = function() { rej(getReq.error); };
     });
+  }
+
+  // 真正从数据库删除（用于清理已软删除超过7天的记录）
+  async function purgeDeleted(store) {
+    await open();
+    const rows = await getAllRaw(store);
+    const cutoff = Date.now() - 7 * 86400000; // 7天前
+    for (const r of rows) {
+      if (r.deleted && r.updated && r.updated < cutoff) {
+        await new Promise(function(res, rej) {
+          const req = tx(store, 'readwrite').delete(r.id);
+          req.onsuccess = function() { res(); };
+          req.onerror = function() { rej(req.error); };
+        });
+      }
+    }
   }
 
   async function clear(store) {
@@ -201,8 +243,8 @@ const DB = (function() {
     const remoteMap = {};
     remoteRows.forEach(function(r) { remoteMap[r.uid] = r; });
 
-    // 2) 本地
-    const localRows = await getAll(table);
+    // 2) 本地（使用 getAllRaw，包含已删除标记，确保删除能同步）
+    const localRows = await getAllRaw(table);
     const localMap = {};
     localRows.forEach(function(r) { localMap[r.uid] = r; });
 
@@ -214,6 +256,10 @@ const DB = (function() {
       const local = localMap[u];
       const rUpdated = remote.updated || 0;
       const lUpdated = (local && local.updated) || 0;
+      const rDeleted = !!(remote.data ? remote.data.deleted : remote.deleted);
+      const lDeleted = !!(local && local.deleted);
+      // 保护：本地已删除且比云端新时，不被云端未删除的记录覆盖
+      if (local && lDeleted && !rDeleted && lUpdated >= rUpdated) continue;
       if (!local || rUpdated > lUpdated) {
         const data = remote.data || remote;
         if (local) {
@@ -390,7 +436,7 @@ const DB = (function() {
 
   return {
     add: add, put: put, putRaw: putRaw, addRaw: addRaw,
-    get: get, getAll: getAll, del: del, clear: clear,
+    get: get, getAll: getAll, del: del, clear: clear, purgeDeleted: purgeDeleted,
     setSetting: setSetting, getSetting: getSetting,
     syncNow: syncNow, getSyncConf: getSyncConf, getSyncStatus: getSyncStatus,
     startAutoSync: startAutoSync, stopAutoSync: stopAutoSync,
